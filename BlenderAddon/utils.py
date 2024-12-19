@@ -1,0 +1,305 @@
+import bpy
+import os
+import requests
+import threading
+import base64
+import tempfile
+
+import numpy as np
+from mathutils import Vector, Matrix
+
+def log_message(message, level='INFO'):
+    levels = {
+        'INFO': bpy.ops.report({'INFO'}, message),
+        'WARNING': bpy.ops.report({'WARNING'}, message),
+        'ERROR': bpy.ops.report({'ERROR'}, message),
+    }
+    levels.get(level.upper(), levels['INFO'])
+
+def get_keyframes(k):
+    start_frame = bpy.context.scene.frame_start
+    end_frame = bpy.context.scene.frame_end
+    return np.linspace(start_frame, end_frame, k, dtype=int)
+def random_camera_views(v, radius=10.0):
+    views = []
+    phi = (1 + np.sqrt(5)) / 2  # Golden ratio
+    for i in range(v):
+        z = 1 - (2 * i) / (v - 1)  # z-coordinate from top to bottom of the sphere
+        theta = 2 * np.pi * i / phi  # Angle around the sphere based on golden ratio
+        x = np.sqrt(1 - z**2) * np.cos(theta)
+        y = np.sqrt(1 - z**2) * np.sin(theta)
+        camera_loc = Vector((x * radius, y * radius, z * radius))
+
+        # Create a camera matrix to point to the origin (0, 0, 0)
+        look_at = Vector((0, 0, 0))
+        forward = (look_at - camera_loc).normalized()
+        
+        up = Vector((0, 0, 1))  # Default up vector
+        if abs(forward.dot(up)) > 0.999:  # Handle degeneracy at poles
+            up = Vector((1, 0, 0))  # Choose a different up vector
+            
+        right = forward.cross(up).normalized()
+        up = right.cross(forward)
+        camera_matrix = Matrix((
+            right.to_4d(),
+            up.to_4d(),
+            (-forward).to_4d(),
+            camera_loc.to_4d(),
+        )).transposed()
+        views.append(camera_matrix)
+    return views    
+def create_camera(view, camera_idx):
+    """
+    Create a temporary camera at a specified view and return the camera object.
+    """
+    cam_data = bpy.data.cameras.new(name=f"Camera_v{camera_idx}")
+    cam_obj = bpy.data.objects.new(name=f"Camera_v{camera_idx}", object_data=cam_data)
+    bpy.context.collection.objects.link(cam_obj)
+    cam_obj.matrix_world = view
+    return cam_obj
+
+
+
+def get_absolute_path(path):
+    """ Ensure the path is absolute. Handle Blender's relative path format. """
+    if path.startswith("//"): 
+        blend_path = bpy.path.abspath("//") 
+        return os.path.join(blend_path, path[2:]) 
+    return os.path.abspath(path) 
+
+def export_weights(self, context, output_directory):
+    # Collect weights from the selected object (armature or mesh)
+    obj = context.object
+    if not obj or obj.type != 'MESH':
+        self.report({'WARNING'}, "No mesh object selected")
+        return
+    
+    if not obj.vertex_groups:
+        self.report({'WARNING'}, "Object has no vertex groups")
+        return
+    
+    weights = []
+    for v in obj.data.vertices:
+        vg_weights = [0] * len(obj.vertex_groups)
+        for g in v.groups:
+            vg_weights[g.group] = g.weight
+        weights.append(vg_weights)
+    
+    weights_array = np.array(weights)
+    weights_file_path = os.path.join(output_directory, "LBS_weights.npy")
+    np.save(weights_file_path, weights_array)
+    print(f"LBS weights exported to {weights_file_path}...")
+
+def export_uv_maps(self, context, output_directory):
+    obj = context.object
+    if not obj or obj.type != 'MESH':
+        self.report({'WARNING'}, "No mesh object selected")
+        return
+    
+    # Make sure the object has UV maps
+    if not obj.data.uv_layers:
+        self.report({'WARNING'}, "Object has no UV maps")
+        return
+    
+    uv_maps = {}
+    for uv_layer in obj.data.uv_layers:
+        uv_coords = []
+        for face in obj.data.polygons:
+            for loop_index in face.loop_indices:
+                uv_coords.append(uv_layer.data[loop_index].uv)
+        uv_maps[uv_layer.name] = np.array(uv_coords)
+    
+    # Save UV maps to .npy files
+    for uv_name, uv_coords in uv_maps.items():
+        uv_file_path = os.path.join(output_directory, f"uv_map_{uv_name}.npy")
+        np.save(uv_file_path, uv_coords)
+        print(f"UV map '{uv_name}' exported to {uv_file_path}...")
+
+def export_depth_images(self, context, output_directory):
+    scene = context.scene
+    obj = context.object
+
+    # Ensure there is a selected object
+    if not obj:
+        self.report({'ERROR'}, "No object selected.")
+        return
+
+    # Define view offsets (relative to the object)
+    num_camera_views = context.scene.num_views
+    distance = context.scene.camera_distance
+    views = random_camera_views(num_camera_views, radius=distance)
+    
+    # Export depth images for each view
+    num_keyframes = context.scene.num_keyframes
+    keyframes = get_keyframes(num_keyframes)
+    for v, view_matrix in enumerate(views):
+        camera = create_camera(view_matrix, v)
+        
+        for keyframe in keyframes:
+            scene.frame_set(keyframe)
+            render_depth(self, camera, keyframe, v, output_directory)
+            
+        # bpy.data.objects.remove(camera, do_unlink=True)
+            
+def render_depth(self, camera, keyframe, view_number, output_directory):
+    scene = bpy.context.scene
+    scene.view_layers[0].use_pass_z = True # Ensure depth pass is enabled
+
+    # Configure compositor nodes
+    scene.use_nodes = True
+    tree = scene.node_tree
+    tree.nodes.clear()
+
+    # Add render layers node
+    render_layer = tree.nodes.new('CompositorNodeRLayers')
+
+    # Add file output node
+    output_node = tree.nodes.new('CompositorNodeOutputFile')
+    output_node.format.file_format = 'PNG'
+    output_node.format.color_mode = 'BW'  # Grayscale output
+    output_node.format.color_depth = '16'  # Use 16-bit precision
+    
+    # get camera distance from origin
+    camera_distance = camera.location.length
+    # Create map value node to normalize depth
+    map_range = tree.nodes.new(type='CompositorNodeMapRange')
+    map_range.inputs[1].default_value = 0
+    map_range.inputs[2].default_value = camera_distance * 2
+    map_range.inputs[3].default_value = 1
+    map_range.inputs[4].default_value = 0
+    map_range.use_clamp = True
+
+    # Set the output path for the depth image
+    output_node.base_path = output_directory
+    output_node.file_slots[0].path = f"keyframe_{keyframe}_view_{view_number}"
+
+    # Link the depth pass to the file output node
+    try:
+        tree.links.new(render_layer.outputs['Depth'], map_range.inputs[0])
+        tree.links.new(map_range.outputs[0], output_node.inputs[0])
+    except KeyError:
+        self.report({'ERROR'}, "Depth output not found in Render Layers. Ensure depth pass is enabled.")
+        return
+
+    if camera and camera.type == 'CAMERA':
+        scene.camera = camera  # Set camera for the scene
+        bpy.context.view_layer.objects.active = camera  # Make sure the camera is the active object
+    else:
+        self.report({'ERROR'}, "Invalid camera object provided.")
+        return
+    
+    # Render the scene and save the file
+    try:
+        bpy.ops.render.render(write_still=True)
+        print(f"Depth image exported for keyframe {keyframe}, view {view_number}")
+    except Exception as e:
+        self.report({'ERROR'}, f"Error rendering depth image: {str(e)}")
+        return
+
+
+
+
+def export_active_mesh(obj, filepath):
+    """Export the active mesh as an OBJ file."""
+    bpy.context.view_layer.objects.active = obj
+    if obj is None or obj.type != 'MESH':
+        print("No active mesh object found.")
+        return False
+    
+    bpy.ops.wm.obj_export(filepath=filepath)
+    return True
+
+SERVER_URL = "http://127.0.0.1:5000/process"  # Replace with your server endpoint
+def send_mesh_and_prompt(obj, mesh_path, prompt, inference_steps):
+    """Send the mesh file and text prompt to the server."""
+    def task():
+        with open(mesh_path, 'rb') as mesh_file:
+            files = {'mesh': ('mesh.obj', mesh_file, 'application/octet-stream')}
+            data = {'prompt': prompt, 'inference_steps': inference_steps}
+            try:
+                response = requests.post(SERVER_URL, files=files, data=data)
+                response.raise_for_status()
+                
+                response_data = response.json()
+                
+                # Save texture
+                output_texture_path = os.path.join(os.path.dirname(mesh_path), 'texture.png')
+                with open(output_texture_path, 'wb') as f:
+                    f.write(base64.b64decode(response_data['texture']))
+                print(f"Texture saved at: {output_texture_path}")
+                
+                import_mesh_from_data(response_data['mesh'])
+                
+            except requests.exceptions.RequestException as e:
+                print("Error communicating with server:", e)
+
+    # Create and start a thread
+    thread = threading.Thread(target=task)
+    thread.start()
+    
+def import_mesh_from_data(mesh_data):
+    bpy.ops.preferences.addon_enable(module="io_scene_obj")
+    
+    # Save the mesh data to a temporary file
+    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as temp_mesh_file:
+        temp_mesh_file.write(mesh_data.encode('utf-8'))  # Assuming the mesh is a string
+        temp_mesh_path = temp_mesh_file.name
+
+    # Import the mesh into Blender
+    bpy.ops.import_scene.obj(filepath=temp_mesh_path)
+
+    # Get the imported object (assumes the last imported object is your target)
+    imported_obj = bpy.context.selected_objects[-1]
+
+    # Set the object as active
+    bpy.context.view_layer.objects.active = imported_obj
+    imported_obj.select_set(True)
+    
+    
+    
+    
+    
+# def apply_texture_to_active_object(obj, texture_path):
+#     """Apply the RGB texture to the active object in Blender."""
+#     if obj is None or obj.type != 'MESH':
+#         print("No active mesh object selected.")
+#         return
+
+#     # Create a new material with nodes enabled
+#     mat = bpy.data.materials.new(name="TexturedMaterial")
+#     mat.use_nodes = True
+#     bsdf = mat.node_tree.nodes["Principled BSDF"]
+
+#     # Add an image texture node
+#     tex_image = mat.node_tree.nodes.new('ShaderNodeTexImage')
+#     tex_image.image = bpy.data.images.load(texture_path)
+
+#     # Connect the image texture to the material
+#     mat.node_tree.links.new(bsdf.inputs['Base Color'], tex_image.outputs['Color'])
+
+#     # Assign the material to the object
+#     if obj.data.materials:
+#         obj.data.materials[0] = mat
+#     else:
+#         obj.data.materials.append(mat)
+
+#     print("Texture applied to the active object.")
+    
+# def apply_uvs_to_mesh(obj, uv_coords):
+#     """Apply UV coordinates to a Blender mesh."""
+#     mesh = obj.data
+    
+#     # Create new UV layer if it doesn't exist
+#     if not mesh.uv_layers:
+#         mesh.uv_layers.new(name='UVMap')
+    
+#     uv_layer = mesh.uv_layers.active.data
+    
+#     # Convert UV coordinates to Blender's format and apply them
+#     for poly in mesh.polygons:
+#         for loop_idx in poly.loop_indices:
+#             vertex_idx = mesh.loops[loop_idx].vertex_index
+#             uv_layer[loop_idx].uv = uv_coords[vertex_idx]
+    
+#     # Mark mesh as updated
+#     mesh.update()

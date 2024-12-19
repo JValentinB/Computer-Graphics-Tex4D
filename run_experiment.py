@@ -75,7 +75,7 @@ syncmvd = StableSyncMVDPipeline(**pipe.components)
 
 
 
-
+print(f"_______________Using conditioning scale {opt.conditioning_scale}")
 result_tex_rgb, textured_views, v = syncmvd(
 	prompt=opt.prompt,
 	height=opt.latent_view_size*8,

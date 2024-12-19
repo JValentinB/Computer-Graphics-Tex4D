@@ -350,7 +350,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 				logging_config=logging_config
 			)
-
+  
 
 		
 		num_timesteps = self.scheduler.config.num_train_timesteps
@@ -380,17 +380,18 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 
 		# 1. Check inputs. Raise error if not correct
-		self.check_inputs(
-			prompt,
-			torch.zeros((1,3,height,width), device=self._execution_device),
-			callback_steps,
-			negative_prompt,
-			None,
-			None,
-			controlnet_conditioning_scale,
-			control_guidance_start,
-			control_guidance_end,
-		)
+		print(f"___This conditioning scale is: {controlnet_conditioning_scale}___")
+		# self.check_inputs(
+		# 	prompt,
+		# 	torch.zeros((1,3,height,width), device=self._execution_device),
+		# 	callback_steps,
+		# 	negative_prompt,
+		# 	None,
+		# 	None,
+		# 	controlnet_conditioning_scale,
+		# 	control_guidance_start,
+		# 	control_guidance_end,
+		# )
 
 
 		# 2. Define call parameters
@@ -520,7 +521,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						control_model_input = latent_model_input
 						controlnet_prompt_embeds = prompt_embeds
 
-
+						print(f"___This conditioning scale is: {controlnet_conditioning_scale}___")
 						if isinstance(controlnet_keep[i], list):
 							cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
 						else:
