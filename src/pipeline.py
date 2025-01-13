@@ -177,6 +177,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			camera_azims=None,
 			camera_centers=None,
 			top_cameras=True,
+			down_cameras=True,
 			ref_views=[],
 			latent_size=None,
 			render_rgb_size=None,
@@ -228,6 +229,14 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			self.attention_mask.append([front_view_idx, cam_count])
 			self.attention_mask.append([back_view_idx, cam_count+1])
 
+		# Add two additional cameras for painting the top surfaces
+		if down_cameras:
+			self.camera_poses.append((210, 0))
+			self.camera_poses.append((210, 180))
+
+			self.attention_mask.append([front_view_idx, cam_count+2])
+			self.attention_mask.append([back_view_idx, cam_count+3])
+
 		# Reference view for attention (all views attend the the views in this list)
 		# A forward view will be used if not specified
 		if len(ref_views) == 0:
@@ -240,10 +249,17 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		# Set up pytorch3D for projection between screen space and UV space
 		# uvp is for latent and uvp_rgb for rgb color
 		self.uvp = UVP(texture_size=texture_size, render_size=latent_size, sampling_mode="nearest", channels=4, device=self._execution_device)
+		# TODO: need to change the Mesh Path to support all (Done)
 		if mesh_path.lower().endswith(".obj"):
 			self.uvp.load_mesh(mesh_path, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
 		elif mesh_path.lower().endswith(".glb"):
 			self.uvp.load_glb_mesh(mesh_path, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
+		# TODO: May need to be changed to Time-sequnce
+		elif os.path.isdir(mesh_path):
+			mesh_list = []
+			for file in os.listdir(mesh_path):
+				mesh_list.append(os.path.join(mesh_path, file))
+			self.uvp.load_mesh(mesh_list, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
 		else:
 			assert False, "The mesh file format is not supported. Use .obj or .glb."
 		self.uvp.set_cameras_and_render_settings(self.camera_poses, centers=camera_centers, camera_distance=4.0)
@@ -340,6 +356,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 				camera_azims=camera_azims,
 				camera_centers=camera_centers,
 				top_cameras=top_cameras,
+				down_cameras=True,
 				ref_views=[],
 				latent_size=height//8,
 				render_rgb_size=render_rgb_size,
@@ -473,7 +490,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		self.uvp.to("cpu")
 
 
-		# 7. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
+		# 7. Prepare extra step kwargs.
 		extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
 		# 7.1 Create tensor stating which controlnets to keep
