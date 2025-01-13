@@ -59,7 +59,7 @@ def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inf
             
             mesh_path=mesh_path,
             mesh_transform={"scale": opt['mesh_scale']},
-            mesh_autouv=True,
+            mesh_autouv=False,
             
             camera_azims=opt['camera_azims'],
             top_cameras=True,

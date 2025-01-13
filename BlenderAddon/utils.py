@@ -129,11 +129,15 @@ def export_depth_images(self, context, output_directory):
     distance = context.scene.camera_distance
     views = random_camera_views(num_camera_views, radius=distance)
     
+    
     # Export depth images for each view
     num_keyframes = context.scene.num_keyframes
     keyframes = get_keyframes(num_keyframes)
     for v, view_matrix in enumerate(views):
         camera = create_camera(view_matrix, v)
+        
+        path = os.path.join(output_directory, f"view_{v}.npy")
+        np.save(path, view_matrix)
         
         for keyframe in keyframes:
             scene.frame_set(keyframe)
@@ -155,7 +159,8 @@ def render_depth(self, camera, keyframe, view_number, output_directory):
 
     # Add file output node
     output_node = tree.nodes.new('CompositorNodeOutputFile')
-    output_node.format.file_format = 'PNG'
+    # output_node.format.file_format = 'OPEN_EXR'
+    output_node.format.file_format = 'PNG'  # Use PNG format
     output_node.format.color_mode = 'BW'  # Grayscale output
     output_node.format.color_depth = '16'  # Use 16-bit precision
     
@@ -163,15 +168,16 @@ def render_depth(self, camera, keyframe, view_number, output_directory):
     camera_distance = camera.location.length
     # Create map value node to normalize depth
     map_range = tree.nodes.new(type='CompositorNodeMapRange')
-    map_range.inputs[1].default_value = 0
-    map_range.inputs[2].default_value = camera_distance * 2
-    map_range.inputs[3].default_value = 1
-    map_range.inputs[4].default_value = 0
+    map_range.inputs[1].default_value = 0                   # Set the min depth value
+    map_range.inputs[2].default_value = camera_distance * 2 # Set the max depth value
+    map_range.inputs[3].default_value = 1                   # Set the min output value
+    map_range.inputs[4].default_value = 0                   # Set the max output value
     map_range.use_clamp = True
 
     # Set the output path for the depth image
     output_node.base_path = output_directory
-    output_node.file_slots[0].path = f"keyframe_{keyframe}_view_{view_number}"
+    # output_node.file_slots[0].path = f"keyframe_{keyframe}_view_{view_number}.exr"
+    output_node.file_slots[0].path = f"view_{view_number}_keyframe_"
 
     # Link the depth pass to the file output node
     try:
@@ -197,8 +203,6 @@ def render_depth(self, camera, keyframe, view_number, output_directory):
         return
 
 
-
-
 def export_active_mesh(obj, filepath):
     """Export the active mesh as an OBJ file."""
     bpy.context.view_layer.objects.active = obj
@@ -210,28 +214,38 @@ def export_active_mesh(obj, filepath):
     return True
 
 SERVER_URL = "http://127.0.0.1:5000/process"  # Replace with your server endpoint
-def send_mesh_and_prompt(obj, mesh_path, prompt, inference_steps):
-    """Send the mesh file and text prompt to the server."""
+def send_mesh_and_prompt(mesh_path, prompt, inference_steps):
+    """Send the mesh file to the server."""
     def task():
+        
+        # Prepare the files to send
         with open(mesh_path, 'rb') as mesh_file:
-            files = {'mesh': ('mesh.obj', mesh_file, 'application/octet-stream')}
+            files = {
+                'mesh': ('mesh.obj', mesh_file, 'application/octet-stream'),
+            }
+
+            # Send the request
             data = {'prompt': prompt, 'inference_steps': inference_steps}
             try:
                 response = requests.post(SERVER_URL, files=files, data=data)
                 response.raise_for_status()
-                
+
                 response_data = response.json()
-                
-                # Save texture
+
+                # Save the texture returned from the server
                 output_texture_path = os.path.join(os.path.dirname(mesh_path), 'texture.png')
                 with open(output_texture_path, 'wb') as f:
                     f.write(base64.b64decode(response_data['texture']))
                 print(f"Texture saved at: {output_texture_path}")
-                
+
                 import_mesh_from_data(response_data['mesh'])
-                
+
             except requests.exceptions.RequestException as e:
                 print("Error communicating with server:", e)
+
+            # Close file handles
+            for file in files.values():
+                file[1].close()
 
     # Create and start a thread
     thread = threading.Thread(target=task)

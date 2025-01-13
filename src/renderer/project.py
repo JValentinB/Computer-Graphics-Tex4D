@@ -52,9 +52,12 @@ class UVProjection():
 			mesh.scale_verts_((scale_factor / float(scale)))		
 		else:
 			mesh.scale_verts_((scale_factor))
-
+		
+		print(f"_____Autouv={autouv}, texture={mesh.textures}")
 		if autouv or (mesh.textures is None):
+			print("_____Unwrapping mesh...")
 			mesh = self.uv_unwrap(mesh)
+			# mesh = self.get_uvmap(mesh_path, mesh)
 		self.mesh = mesh
 
 
@@ -107,7 +110,7 @@ class UVProjection():
 
 		vt = torch.from_numpy(vt_np.astype(np.float32)).type(verts_list.dtype).to(mesh.device)
 		ft = torch.from_numpy(ft_np.astype(np.int64)).type(faces_list.dtype).to(mesh.device)
-
+		
 		new_map = torch.zeros(self.target_size+(self.channels,), device=mesh.device)
 		new_tex = TexturesUV(
 			[new_map], 
@@ -117,6 +120,27 @@ class UVProjection():
 			)
 
 		mesh.textures = new_tex
+		return mesh
+
+	def get_uvmap(self, obj_path, mesh):
+		# Parse the .obj file
+		verts, faces, aux = load_obj(obj_path, load_textures=True)
+		
+		# Extract UV vertex coordinates and face indices for UVs
+		verts_uvs = aux.verts_uvs.to(mesh.device)  # [N, 2]
+		faces_uvs = faces.textures_idx.to(mesh.device)  # [F, 3]
+
+		# Initialize a blank texture map
+		texture_map = torch.zeros(self.target_size + (self.channels,), device=mesh.device)
+
+		# Create the TexturesUV object
+		textures = TexturesUV(
+			maps=[texture_map],
+			faces_uvs=[faces_uvs],
+			verts_uvs=[verts_uvs],
+			sampling_mode=self.sampling_mode,
+		)
+		mesh.textures = textures
 		return mesh
 
 
