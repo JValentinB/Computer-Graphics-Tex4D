@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Tex4D",
+    "name": "TEX4D",
     "blender": (4, 3, 0),
     "category": "Object",
     "description": "Exports LBS weights as numpy arrays, depth images for keyframes, and UV maps.",
@@ -13,11 +13,11 @@ from .utils import *
 
 
 class ExportPanel(bpy.types.Panel):
-    bl_label = "Export Tools"
+    bl_label = "Tex4D"
     bl_idname = "VIEW3D_PT_export_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Export Tools"
+    bl_category = "Tex4D"
 
     def draw(self, context):
         layout = self.layout
@@ -29,11 +29,12 @@ class ExportPanel(bpy.types.Panel):
         
         layout.separator()
         layout.prop(scene, "inference_steps")
+        layout.prop(scene, "image_sequence")
         layout.prop(scene, "prompt")
         
         layout.separator()
         layout.prop(scene, "output_directory")
-        layout.operator("object.export_data", text="Export")
+        layout.operator("object.export_data", text="Generate")
 
 class ExportOperator(bpy.types.Operator):
     bl_idname = "object.export_data"
@@ -72,21 +73,37 @@ class ExportOperator(bpy.types.Operator):
         
         # Temporary file path for exporting the mesh
         temp_dir = bpy.app.tempdir
-        mesh_path = os.path.join(temp_dir, "mesh.obj")
+
+        if(scene.image_sequence):
+            mesh_dir = temp_dir
+            if(export_animated_mesh(obj, mesh_dir)):
+                print(f"Mesh exported to {mesh_dir}")
+            
+                steps = scene.inference_steps
+                # Send the mesh and text prompt to the server
+                send_meshes_and_prompt(mesh_dir, prompt, steps)
+            
+                # Clean up: delete the temporary file
+                try:
+                    os.remove(mesh_dir)
+                except OSError as e:
+                    print("Error deleting temporary file:", e)
+        else: 
+            mesh_path = os.path.join(temp_dir, "mesh.obj")
         
-        # Export the active mesh
-        if export_active_mesh(obj, mesh_path):
-            print(f"Mesh exported to {mesh_path}")
+            # Export the active mesh
+            if export_active_mesh(obj, mesh_path):
+                print(f"Mesh exported to {mesh_path}")
             
-            steps = scene.inference_steps
-            # Send the mesh and text prompt to the server
-            send_mesh_and_prompt(mesh_path, prompt, steps)
+                steps = scene.inference_steps
+                # Send the mesh and text prompt to the server
+                send_meshes_and_prompt(mesh_path, prompt, steps)
             
-            # Clean up: delete the temporary file
-            try:
-                os.remove(mesh_path)
-            except OSError as e:
-                print("Error deleting temporary file:", e)
+                # Clean up: delete the temporary file
+                try:
+                    os.remove(mesh_path)
+                except OSError as e:
+                    print("Error deleting temporary file:", e)
             
         return {'FINISHED'}
     
@@ -214,15 +231,15 @@ def register():
     bpy.types.Scene.output_directory = bpy.props.StringProperty(name="Output Directory", default="", subtype='DIR_PATH')
     
     bpy.types.Scene.num_keyframes = bpy.props.IntProperty(
-        name="k",
+        name="keyframes",
         description="Number of keyframes to extract",
-        default=1,
+        default=5,
         min=1
     )
     bpy.types.Scene.num_views = bpy.props.IntProperty(
-        name="v",
+        name="views",
         description="Number of random camera views",
-        default=1,
+        default=5,
         min=1
     )
     bpy.types.Scene.camera_distance = bpy.props.FloatProperty(
@@ -236,6 +253,11 @@ def register():
         description="Number of inference steps the model should take",
         default=10,
         min=1
+    )
+    bpy.types.Scene.image_sequence = bpy.props.BoolProperty(
+        name="Image Sequence",
+        description="Wether to generate a single texture or texture sequence",
+        default=False
     )
     
     # Register the custom shader node
