@@ -39,26 +39,57 @@ class UVProjection():
 		self.sampling_mode = sampling_mode
 
 
+
 	# Load obj mesh, rescale the mesh to fit into the bounding box
-	def load_mesh(self, mesh_path, scale_factor=2.0, auto_center=True, autouv=False):
-		mesh = load_objs_as_meshes([mesh_path], device=self.device)
-		if auto_center:
-			verts = mesh.verts_packed()
-			max_bb = (verts - 0).max(0)[0]
-			min_bb = (verts - 0).min(0)[0]
-			scale = (max_bb - min_bb).max()/2
-			center = (max_bb+min_bb) /2
-			mesh.offset_verts_(-center)
-			mesh.scale_verts_((scale_factor / float(scale)))		
-		else:
-			mesh.scale_verts_((scale_factor))
-		
-		print(f"_____Autouv={autouv}, texture={mesh.textures}")
-		if autouv or (mesh.textures is None):
-			print("_____Unwrapping mesh...")
-			mesh = self.uv_unwrap(mesh)
-			# mesh = self.get_uvmap(mesh_path, mesh)
-		self.mesh = mesh
+	def load_mesh(self, mesh_path_list, scale_factor=2.0, auto_center=True, autouv=False):
+		verts_list = []
+		faces_list = []
+		textures_list = []
+
+		for mesh_path in mesh_path_list:
+			mesh = load_objs_as_meshes([mesh_path], device=self.device)
+
+			if auto_center:
+				verts = mesh.verts_packed()
+				max_bb = (verts - 0).max(0)[0]
+				min_bb = (verts - 0).min(0)[0]
+				scale = (max_bb - min_bb).max()/2
+				center = (max_bb+min_bb) /2
+				mesh.offset_verts_(-center)
+				mesh.scale_verts_((scale_factor / float(scale)))
+			else:
+				mesh.scale_verts_(scale_factor)
+
+			print(f"_____Autouv={autouv}, texture={mesh.textures}")
+			if autouv or (mesh.textures is None):
+				# print("_____Unwrapping mesh...")
+				# mesh = self.uv_unwrap(mesh)
+				print("___using defined uv map")
+				mesh = self.get_uvmap(mesh_path, mesh)
+
+
+			verts_list.extend(mesh.verts_list())
+			faces_list.extend(mesh.faces_list())
+			# textures_list.append(mesh.textures.clone())
+
+			if mesh.textures is not None:
+				textures_list.append(mesh.textures)
+			else:
+				verts_uvs = torch.zeros_like(mesh.verts_packed()[:, :2], device=self.device)
+				faces_uvs = mesh.faces_packed()
+				new_map = torch.zeros(self.target_size+(self.channels,), device=mesh.device)
+				textures_list.append(TexturesUV(maps=[new_map],verts_uvs=[verts_uvs], faces_uvs=[faces_uvs]))
+
+		self.mesh = Meshes(
+			verts=verts_list,
+			faces=faces_list,
+			textures=TexturesUV(
+				maps = [t.maps_padded()[0] for t in textures_list],
+				verts_uvs=[t.verts_uvs_list()[0] for t in textures_list],
+				faces_uvs=[t.faces_uvs_list()[0] for t in textures_list]
+			)
+		)
+		self.mesh_uv = self.mesh
 
 
 	def load_glb_mesh(self, mesh_path, scale_factor=2.0, auto_center=True, autouv=False):
@@ -150,24 +181,33 @@ class UVProjection():
 		number of unique vertices its UV layout, while the faces list
 		is intact.
 	'''
+	# TODO: I am not sure whether this function will change the obj file so that the mesh doesn't match the origin one exported from Blender
 	def disconnect_faces(self):
+
 		mesh = self.mesh
 		verts_list = mesh.verts_list()
 		faces_list = mesh.faces_list()
 		verts_uvs_list = mesh.textures.verts_uvs_list()
 		faces_uvs_list = mesh.textures.faces_uvs_list()
 		packed_list = [v[f] for v,f in zip(verts_list, faces_list)]
-		verts_disconnect_list = [
+		verts_disconnect = [
 			torch.zeros(
-				(verts_uvs_list[i].shape[0], 3), 
-				dtype=verts_list[0].dtype, 
+				(verts_uvs_list[i].shape[0], 3),
+				dtype=verts_list[0].dtype,
 				device=verts_list[0].device
-			) 
+			)
 			for i in range(len(verts_list))]
 		for i in range(len(verts_list)):
-			verts_disconnect_list[i][faces_uvs_list] = packed_list[i]
+			verts_disconnect[i][faces_uvs_list[i].reshape(-1)] = packed_list[i].reshape(-1, 3)
+
+
+
 		assert not mesh.has_verts_normals(), "Not implemented for vertex normals"
-		self.mesh_d = Meshes(verts_disconnect_list, faces_uvs_list, mesh.textures)
+		self.mesh_d = Meshes(
+			verts=verts_disconnect,
+			faces=faces_uvs_list,
+			textures=mesh.textures
+		)
 		return self.mesh_d
 
 
@@ -285,11 +325,15 @@ class UVProjection():
 		cos_maps = []
 		tmp_mesh = self.mesh.clone()
 		for i in range(len(self.cameras)):
-			
-			zero_map = torch.zeros(self.target_size+(channels,), device=self.device, requires_grad=True)
-			optimizer = torch.optim.SGD([zero_map], lr=1, momentum=0)
+
+			zero_maps = [
+				torch.zeros(self.target_size + (channels,), device=self.device, requires_grad=True)
+				for _ in range(len(self.mesh))
+			]
+
+			optimizer = torch.optim.SGD(zero_maps, lr=1, momentum=0)
 			optimizer.zero_grad()
-			zero_tex = TexturesUV([zero_map], self.mesh.textures.faces_uvs_padded(), self.mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+			zero_tex = TexturesUV(zero_maps, self.mesh.textures.faces_uvs_padded(), self.mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
 			tmp_mesh.textures = zero_tex
 
 			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights)
@@ -299,11 +343,17 @@ class UVProjection():
 			optimizer.step()
 
 			if fill:
-				zero_map = zero_map.detach() / (self.gradient_maps[i] + 1E-8)
-				zero_map = voronoi_solve(zero_map, self.gradient_maps[i][...,0])
+				# Detach and divide each map in the list
+				zero_maps = [z.detach() / (g + 1E-8) for z, g in zip(zero_maps, self.gradient_maps[i])]
+				zero_maps = [
+					voronoi_solve(z, g[..., 0])
+					for z, g in zip(zero_maps, self.gradient_maps[i])
+				]
+
 			else:
-				zero_map = zero_map.detach() / (self.gradient_maps[i]+1E-8)
-			cos_maps.append(zero_map)
+				# Detach and divide each map in the list
+				zero_maps = [z.detach() / (g + 1E-8) for z, g in zip(zero_maps, self.gradient_maps[i])]
+			cos_maps.append(zero_maps)
 		self.cos_maps = cos_maps
 
 		
@@ -317,9 +367,24 @@ class UVProjection():
 			self.renderer.rasterizer.raster_settings.image_size = image_size
 		shader = self.renderer.shader
 		self.renderer.shader = HardGeometryShader(device=self.device, cameras=self.cameras[0], lights=self.lights)
+		mesh_num = len(self.mesh.clone())
 		tmp_mesh = self.mesh.clone()
+		tmp_mesh = tmp_mesh.extend(len(self.cameras))
+		tmp_mesh_num = len(tmp_mesh)
+		if tmp_mesh_num != len(self.cameras):
+			# extend cameras number
+			cameras_expanded = FoVOrthographicCameras(
+				R=self.cameras.R.repeat(mesh_num, 1, 1),
+				T=self.cameras.T.repeat(mesh_num, 1),
+				znear=self.cameras.znear.repeat(mesh_num),
+				zfar=self.cameras.zfar.repeat(mesh_num),
+				device=self.device,
+			)
+		else:
+			cameras_expanded = self.cameras
+		# self.cameras = cameras_expanded
 		
-		verts, normals, depths, cos_angles, texels, fragments = self.renderer(tmp_mesh.extend(len(self.cameras)), cameras=self.cameras, lights=self.lights)
+		verts, normals, depths, cos_angles, texels, fragments = self.renderer(tmp_mesh, cameras=cameras_expanded, lights=self.lights)
 		self.renderer.shader = shader
 
 		if image_size:
@@ -375,17 +440,24 @@ class UVProjection():
 		tmp_mesh = self.mesh.clone()
 		gradient_maps = []
 		for i in range(len(self.cameras)):
-			zero_map = torch.zeros(self.target_size+(channels,), device=self.device, requires_grad=True)
-			optimizer = torch.optim.SGD([zero_map], lr=1, momentum=0)
+			# Creating a zero_map with the same batch size
+			zero_maps = [
+				torch.zeros(self.target_size + (channels,), device=self.device, requires_grad=True)
+				for _ in range(len(self.mesh))
+			]
+			# zero_map = torch.zeros(self.target_size+(channels,), device=self.device, requires_grad=True)
+
+			optimizer = torch.optim.SGD(zero_maps, lr=1, momentum=0)
 			optimizer.zero_grad()
-			zero_tex = TexturesUV([zero_map], self.mesh.textures.faces_uvs_padded(), self.mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+			zero_tex = TexturesUV(zero_maps, self.mesh.textures.faces_uvs_padded(), self.mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
 			tmp_mesh.textures = zero_tex
+
 			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights)
 			loss = torch.sum((1 - images_predicted)**2)
 			loss.backward()
 			optimizer.step()
 
-			gradient_maps.append(zero_map.detach())
+			gradient_maps.append([zero_map.detach() for zero_map in zero_maps])
 
 		self.gradient_maps = gradient_maps
 
