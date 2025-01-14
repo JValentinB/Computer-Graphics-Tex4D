@@ -396,19 +396,19 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		width = width or self.unet.config.sample_size * self.vae_scale_factor
 
 
-		# 1. Check inputs. Raise error if not correct
-		print(f"___This conditioning scale is: {controlnet_conditioning_scale}___")
-		# self.check_inputs(
-		# 	prompt,
-		# 	torch.zeros((1,3,height,width), device=self._execution_device),
-		# 	callback_steps,
-		# 	negative_prompt,
-		# 	None,
-		# 	None,
-		# 	controlnet_conditioning_scale,
-		# 	control_guidance_start,
-		# 	control_guidance_end,
-		# )
+		# 1. Check inputs. Raise error if not correct   # it is unnecesasary!
+		# print(f"___This conditioning scale is: {controlnet_conditioning_scale}___")
+		self.check_inputs(
+			prompt,
+			torch.zeros((1,3,height,width), device=self._execution_device),
+			callback_steps,
+			negative_prompt,
+			None,
+			None,
+			controlnet_conditioning_scale,
+			control_guidance_start,
+			control_guidance_end,
+		)
 
 
 		# 2. Define call parameters
