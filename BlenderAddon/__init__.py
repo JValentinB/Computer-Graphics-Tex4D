@@ -127,6 +127,7 @@ class CustomSwitchShaderNode(bpy.types.ShaderNodeCustomGroup):
 
         # Create default nodes and connections
         self._create_default_nodes()
+        self._create_time_group_node()
 
     def _create_default_nodes(self):
         """Initialize the node group with default nodes."""
@@ -167,6 +168,54 @@ class CustomSwitchShaderNode(bpy.types.ShaderNodeCustomGroup):
         self.node_tree.interface.new_socket(socket_name, in_out='INPUT', socket_type='NodeSocketColor')
         input_node = self.node_tree.nodes["Group Input"]
         self.node_tree.links.new(input_node.outputs[socket_name], mix_node.inputs[input_idx])
+        
+    def _create_time_group_node(self):
+        self.time_node_tree = bpy.data.node_groups.new("TimeNodeGroup", 'ShaderNodeTree')
+        
+        # Create nodes for current frame, start frame and end frame
+        current_frame_node = self.time_node_tree.nodes.new("ShaderNodeAttribute")
+        current_frame_node.attribute_type = "VIEW_LAYER"
+        current_frame_node.attribute_name = "frame_current"
+        current_frame_node.location = (-400, 0)
+        
+        start_frame_node = self.time_node_tree.nodes.new("ShaderNodeAttribute")
+        start_frame_node.attribute_type = "VIEW_LAYER"
+        start_frame_node.attribute_name = "frame_start"
+        start_frame_node.location = (-400, -200)
+        
+        end_frame_node = self.time_node_tree.nodes.new("ShaderNodeAttribute")
+        end_frame_node.attribute_type = "VIEW_LAYER"
+        end_frame_node.attribute_name = "frame_end"
+        end_frame_node.location = (-400, 200)
+        
+        # First subtract start frame from current frame
+        subtract_node = self.time_node_tree.nodes.new("ShaderNodeMath")
+        subtract_node.operation = 'SUBTRACT'
+        subtract_node.location = (-200, 0)
+        self.time_node_tree.links.new(current_frame_node.outputs[2], subtract_node.inputs[0])
+        self.time_node_tree.links.new(start_frame_node.outputs[2], subtract_node.inputs[1])
+        
+        # Then subtract start frame from end frame to get total range
+        range_node = self.time_node_tree.nodes.new("ShaderNodeMath")
+        range_node.operation = 'SUBTRACT'
+        range_node.location = (-200, 200)
+        self.time_node_tree.links.new(end_frame_node.outputs[2], range_node.inputs[0])
+        self.time_node_tree.links.new(start_frame_node.outputs[2], range_node.inputs[1])
+        
+        # Finally divide to normalize between 0 and 1
+        divide_node = self.time_node_tree.nodes.new("ShaderNodeMath")
+        divide_node.operation = 'DIVIDE'
+        divide_node.location = (0, 0)
+        self.time_node_tree.links.new(subtract_node.outputs[0], divide_node.inputs[0])
+        self.time_node_tree.links.new(range_node.outputs[0], divide_node.inputs[1])
+        
+        # Create output node
+        self.time_node_tree.interface.new_socket("Time", in_out='OUTPUT', socket_type='NodeSocketFloat')
+        output_node = self.time_node_tree.nodes.new("NodeGroupOutput")
+        output_node.location = (200, 0)
+        self.time_node_tree.links.new(divide_node.outputs[0], output_node.inputs["Time"])
+        
+        
         
     def draw_buttons(self, context, layout):
         layout.operator("node.add_image_input", text="Add Image Input")
