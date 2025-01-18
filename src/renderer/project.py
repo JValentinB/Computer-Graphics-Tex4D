@@ -238,9 +238,10 @@ class UVProjection():
 	# Set texture for the current mesh.
 	def set_texture_map(self, texture):
 		new_map = texture.permute(1, 2, 0)
+		new_map = new_map.repeat(len(self.mesh), 1, 1, 1)
 		new_map = new_map.to(self.device)
 		new_tex = TexturesUV(
-			[new_map], 
+			new_map,
 			self.mesh.textures.faces_uvs_padded(), 
 			self.mesh.textures.verts_uvs_padded(), 
 			sampling_mode=self.sampling_mode
@@ -250,6 +251,8 @@ class UVProjection():
 
 	# Set the initial normal noise texture
 	# No generator here for replication of the experiment result. Add one as you wish
+
+	# TODO: This should also be changed to a multi thread
 	def set_noise_texture(self, channels=None):
 		if not channels:
 			channels = self.channels
@@ -327,7 +330,7 @@ class UVProjection():
 		for i in range(len(self.cameras)):
 
 			zero_maps = [
-				torch.zeros(self.target_size + (channels,), device=self.device, requires_grad=True)
+				torch.zeros(self.target_size + (self.channels,), device=self.device, requires_grad=True)
 				for _ in range(len(self.mesh))
 			]
 
@@ -518,8 +521,20 @@ class UVProjection():
 
 	# Render the current mesh and texture from current cameras
 	def render_textured_views(self):
+		mesh_num = len(self.mesh.clone())
 		meshes = self.mesh.extend(len(self.cameras))
-		images_predicted = self.renderer(meshes, cameras=self.cameras, lights=self.lights)
+		tmp_mesh_num = len(meshes)
+		if tmp_mesh_num != len(self.cameras):
+			# extend cameras number
+			cameras_expanded = FoVOrthographicCameras(
+				R=self.cameras.R.repeat(mesh_num, 1, 1),
+				T=self.cameras.T.repeat(mesh_num, 1),
+				znear=self.cameras.znear.repeat(mesh_num),
+				zfar=self.cameras.zfar.repeat(mesh_num),
+				device=self.device,
+			)
+
+		images_predicted = self.renderer(meshes, cameras=cameras_expanded, lights=self.lights)
 
 		return [image.permute(2, 0, 1) for image in images_predicted]
 
@@ -580,5 +595,10 @@ class UVProjection():
 		for list_name in ["visible_triangles", "visibility_maps", "cos_maps"]:
 			if hasattr(self, list_name):
 				map_list = getattr(self, list_name)
-				for i in range(len(map_list)):
-					map_list[i] = map_list[i].to(device)
+				if list_name == "cos_maps":
+					for i, inner_list in enumerate(map_list):
+						for j, m in enumerate(inner_list):
+							map_list[i][j] = m.to(device)
+				else:
+					for i in range(len(map_list)):
+						map_list[i] = map_list[i].to(device)

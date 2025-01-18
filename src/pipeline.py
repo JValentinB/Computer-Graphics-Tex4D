@@ -70,7 +70,7 @@ def get_conditioning_images(uvp, output_size, render_size=512, blur_filter=5, co
 	)
 
 	if cond_type == "normal":
-		view_normals = uvp.decode_view_normal(normals).permute(0,3,1,2) *2 - 1
+		view_normals = uvp.decode_view_normal(normals).permute(0,3,1,2) *2 - 1    # -1 to 1
 		conditional_images = normals_transforms(view_normals)
 	# Some problem here, depth controlnet don't work when depth is normalized
 	# But it do generate using the unnormalized form as below
@@ -83,6 +83,8 @@ def get_conditioning_images(uvp, output_size, render_size=512, blur_filter=5, co
 
 # Revert time 0 background to time t to composite with time t foreground
 @torch.no_grad()
+
+# TODO:The i is len of backgrounds! Need to be fixed!
 def composite_rendered_view(scheduler, backgrounds, foregrounds, masks, t):
 	composited_images = []
 	for i, (background, foreground, mask) in enumerate(zip(backgrounds, foregrounds, masks)):
@@ -95,7 +97,7 @@ def composite_rendered_view(scheduler, backgrounds, foregrounds, masks, t):
 	composited_tensor = torch.stack(composited_images)
 	return composited_tensor
 
-
+# TODO：This code might be useful
 # Split into micro-batches to use less memory in each unet prediction
 # But need more investigation on reducing memory usage
 # Assume it has no possitive effect and use a large "max_batch_size" to skip splitting
@@ -229,7 +231,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			self.attention_mask.append([front_view_idx, cam_count])
 			self.attention_mask.append([back_view_idx, cam_count+1])
 
-		# Add two additional cameras for painting the top surfaces
+		# Add two additional cameras for painting the bottom surfaces
 		if down_cameras:
 			self.camera_poses.append((210, 0))
 			self.camera_poses.append((210, 180))
@@ -244,7 +246,6 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		# Calculate in-group attention mask
 		self.group_metas = split_groups(self.attention_mask, max_batch_size, ref_views)
-
 
 		# Set up pytorch3D for projection between screen space and UV space
 		# uvp is for latent and uvp_rgb for rgb color
@@ -396,7 +397,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		width = width or self.unet.config.sample_size * self.vae_scale_factor
 
 
-		# 1. Check inputs. Raise error if not correct   # it is unnecesasary!
+		# 1. Check inputs. Raise error if not correct   # it is unnecesary!
 		# print(f"___This conditioning scale is: {controlnet_conditioning_scale}___")
 		self.check_inputs(
 			prompt,
@@ -415,7 +416,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		if prompt is not None and isinstance(prompt, list):
 			assert len(prompt) == 1 and len(negative_prompt) == 1, "Only implemented for 1 (negative) prompt"  
 		assert num_images_per_prompt == 1, "Only implemented for 1 image per-prompt"
-		batch_size = len(self.uvp.cameras)
+
 
 
 		device = self._execution_device
@@ -458,8 +459,12 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		# (4. Prepare image) This pipeline use internal conditional images from Pytorch3D
 		self.uvp.to(self._execution_device)
+
+		# get depth map
 		conditioning_images, masks = get_conditioning_images(self.uvp, height, cond_type=cond_type)
 		conditioning_images = conditioning_images.type(prompt_embeds.dtype)
+		# Why do *2 - 1 and then do /2 + 0.5 Lmao
+		# Here even the mask is normalized ....
 		cond = (conditioning_images/2+0.5).permute(0,2,3,1).cpu().numpy()
 		cond = np.concatenate([img for img in cond], axis=1)
 		numpy_to_pil(cond)[0].save(f"{self.intermediate_dir}/cond.jpg")
@@ -469,6 +474,9 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		timesteps = self.scheduler.timesteps
 
 		# 6. Prepare latent variables
+		batch_size = len(conditioning_images)
+		self.key_frames_num = batch_size // len(self.camera_poses)
+		# self.group_metas = [self.group_metas[0]] * key_frames_num
 		num_channels_latents = self.unet.config.in_channels
 		latents = self.prepare_latents(
 			batch_size,
@@ -480,11 +488,12 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			generator,
 			None,
 		)
-
+		# Sampling is done directly in the texture domain!
+		# noise_texture = torch.normal(0, 1, (channels,) + self.target_size, device=self.device) it is a normal distribution texture sampling
 		latent_tex = self.uvp.set_noise_texture()
 		noise_views = self.uvp.render_textured_views()
-		foregrounds = [view[:-1] for view in noise_views]
-		masks = [view[-1:] for view in noise_views]
+		foregrounds = [view[:-1] for view in noise_views]  # the first 4 channel
+		masks = [view[-1:] for view in noise_views]   # the last channel
 		composited_tensor = composite_rendered_view(self.scheduler, latents, foregrounds, masks, timesteps[0]+1)
 		latents = composited_tensor.type(latents.dtype)
 		self.uvp.to("cpu")
@@ -506,13 +515,14 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		# 8. Denoising loop
 		num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
 		intermediate_results = []
+		# Still don't know how this background_colors work.
 		background_colors = [random.choice(list(color_constants.keys())) for i in range(len(self.camera_poses))]
 		dbres_sizes_list = []
 		mbres_size_list = []
 		with self.progress_bar(total=num_inference_steps) as progress_bar:
 			for i, t in enumerate(timesteps):
 
-				# mix prompt embeds according to azim angle
+				# mix prompt embeds  according to azim angle
 				positive_prompt_embeds = [azim_prompt(prompt_embed_dict, pose) for pose in self.camera_poses]
 				positive_prompt_embeds = torch.stack(positive_prompt_embeds, axis=0)
 
@@ -552,9 +562,31 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						down_block_res_samples_list = []
 						mid_block_res_sample_list = []
 
-						model_input_batches = [torch.index_select(control_model_input, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
-						prompt_embeds_batches = [torch.index_select(controlnet_prompt_embeds, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
-						conditioning_images_batches = [torch.index_select(conditioning_images, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
+						# global_group_metas = []
+						# for frame_idx, meta in enumerate(self.group_metas):
+						# 	for i in meta:
+						# 		global_indices = [frame_idx * len(self.camera_poses) + idx for idx in i]  # 全局索引
+						# 		global_group_metas.append(global_indices)
+						# TODO：Here the prompt number doesn‘t match the input number and the conditioning image, the meta is also wrong!!!
+						# I don't know whehter this method will lead to the wrong result!
+						W = control_model_input.shape[2]
+						H = control_model_input.shape[3]
+						control_model_input = control_model_input.reshape(len(self.camera_poses), -1, num_channels_latents,H, W)
+						conditioning_images = conditioning_images.reshape(len(self.camera_poses), -1,
+																		  3, height, width)
+						# for meta in self.group_metas:
+						model_input_batches = torch.unbind(torch.index_select(control_model_input, dim=0, index=torch.tensor(
+								self.group_metas[0][0], device=self._execution_device)), dim = 1)
+						conditioning_images_batches = torch.unbind(
+								torch.index_select(conditioning_images, dim=0, index=torch.tensor(
+									self.group_metas[0][0], device=self._execution_device)), dim=1)
+						prompt_embeds_batches = torch.index_select(controlnet_prompt_embeds, dim=0,
+											index=torch.tensor(self.group_metas[0][0],device=self._execution_device))
+						prompt_embeds_batches = [prompt_embeds_batches for _ in range(self.key_frames_num)]
+
+						# model_input_batches = [torch.index_select(control_model_input, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
+						# prompt_embeds_batches = [torch.index_select(controlnet_prompt_embeds, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
+						# conditioning_images_batches = [torch.index_select(conditioning_images, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
 
 						for model_input_batch ,prompt_embeds_batch, conditioning_images_batch \
 							in zip (model_input_batches, prompt_embeds_batches, conditioning_images_batches):
@@ -571,7 +603,9 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 							mid_block_res_sample_list.append(mid_block_res_sample)
 
 						''' For the ith element of down_block_res_samples, concat the ith element of all mini-batch result '''
-						model_input_batches = prompt_embeds_batches = conditioning_images_batches = None
+						# model_input_batches = prompt_embeds_batches =
+						conditioning_images_batches = None
+						# release the memory
 
 						if guess_mode:
 							for dbres in down_block_res_samples_list:
@@ -605,13 +639,25 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						and re group them into m lists of n mini batch samples.
 					
 					'''
+					# TODO： The best way to use it for minibatch should be extending self.group meta (just extend it!), and split the prompt and latent!
+					# Let's go to the end first!
 					noise_pred_list = []
-					model_input_batches = [torch.index_select(latent_model_input, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
-					prompt_embeds_batches = [torch.index_select(prompt_embeds, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
 
+					W = control_model_input.shape[2]
+					H = control_model_input.shape[3]
+					control_model_input = control_model_input.reshape(len(self.camera_poses), -1, num_channels_latents,
+																	  H, W)
+					conditioning_images = conditioning_images.reshape(len(self.camera_poses), -1,
+																	  3, height, width)
+
+					# model_input_batches = [torch.index_select(latent_model_input, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
+					# prompt_embeds_batches = [torch.index_select(prompt_embeds, dim=0, index=torch.tensor(meta[0], device=self._execution_device)) for meta in self.group_metas]
+					# TODO: Check the input!
+					# TODO: I think that I should extend the group_metas to batch_num
+					group_metas_batches = self.group_metas * self.key_frames_num
 					for model_input_batch, prompt_embeds_batch, down_block_res_samples_batch, mid_block_res_sample_batch, meta \
-						in zip(model_input_batches, prompt_embeds_batches, down_block_res_samples_list, mid_block_res_sample_list, self.group_metas):
-						if t > num_timesteps * (1- ref_attention_end):
+						in zip(model_input_batches, prompt_embeds_batches, down_block_res_samples_list, mid_block_res_sample_list, group_metas_batches):
+						if t > num_timesteps * (1 - ref_attention_end):
 							replace_attention_processors(self.unet, SamplewiseAttnProcessor2_0, attention_mask=meta[2], ref_attention_mask=meta[3], ref_weight=1)
 						else:
 							replace_attention_processors(self.unet, SamplewiseAttnProcessor2_0, attention_mask=meta[2], ref_attention_mask=meta[3], ref_weight=0)
@@ -626,7 +672,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 							return_dict=False,
 						)[0]
 						noise_pred_list.append(noise_pred)
-
+					# TODO: 这里有问题！！！
 					noise_pred_list = [torch.index_select(noise_pred, dim=0, index=torch.tensor(meta[1], device=self._execution_device)) for noise_pred, meta in zip(noise_pred_list, self.group_metas)]
 					noise_pred = torch.cat(noise_pred_list, dim=0)
 					down_block_res_samples_list = None
