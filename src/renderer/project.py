@@ -236,17 +236,18 @@ class UVProjection():
 
 
 	# Set texture for the current mesh.
-	def set_texture_map(self, texture):
-		new_map = texture.permute(1, 2, 0)
-		new_map = new_map.repeat(len(self.mesh), 1, 1, 1)
-		new_map = new_map.to(self.device)
-		new_tex = TexturesUV(
-			new_map,
-			self.mesh.textures.faces_uvs_padded(), 
-			self.mesh.textures.verts_uvs_padded(), 
-			sampling_mode=self.sampling_mode
-			)
-		self.mesh.textures = new_tex
+	def set_texture_map(self, textures):
+		for i, texture in enumerate(textures):
+			new_map = texture.permute(1, 2, 0)
+			new_map = new_map.repeat(len(self.mesh), 1, 1, 1)
+			new_map = new_map.to(self.device)
+			new_tex = TexturesUV(
+				new_map,
+				self.mesh.textures.faces_uvs_padded(),
+				self.mesh.textures.verts_uvs_padded(),
+				sampling_mode=self.sampling_mode
+				)
+			self.mesh[i].textures = new_tex
 
 
 	# Set the initial normal noise texture
@@ -256,7 +257,8 @@ class UVProjection():
 	def set_noise_texture(self, channels=None):
 		if not channels:
 			channels = self.channels
-		noise_texture = torch.normal(0, 1, (channels,) + self.target_size, device=self.device)
+		mesh_num = len(self.mesh)
+		noise_texture = torch.normal(0, 1, (mesh_num,) + (channels,) + self.target_size, device=self.device)
 		self.set_texture_map(noise_texture)
 		return noise_texture
 
@@ -548,14 +550,28 @@ class UVProjection():
 		if not channels:
 			channels = self.channels
 		views = [view.permute(1, 2, 0) for view in views]
-
 		tmp_mesh = self.mesh
-		bake_maps = [torch.zeros(self.target_size+(views[0].shape[2],), device=self.device, requires_grad=True) for view in views]
+		tmp_mesh_num = len(tmp_mesh)
+		# bake_maps = [[torch.zeros( self.target_size + (views[0].shape[2],), device=self.device,
+		# 			requires_grad=True) for _ in range(tmp_mesh_num)] for _ in range(len(self.cameras))]
+		bake_maps = [torch.zeros(self.target_size + (views[0].shape[2],), device=self.device, requires_grad=True) for
+					 view in views]
 		optimizer = torch.optim.SGD(bake_maps, lr=1, momentum=0)
+
+		if tmp_mesh_num != len(self.cameras):
+			# extend cameras number
+			cameras_expanded = FoVOrthographicCameras(
+				R=self.cameras.R.repeat(tmp_mesh_num, 1, 1),
+				T=self.cameras.T.repeat(tmp_mesh_num, 1),
+				znear=self.cameras.znear.repeat(tmp_mesh_num),
+				zfar=self.cameras.zfar.repeat(tmp_mesh_num),
+				device=self.device,
+			)
+
 		optimizer.zero_grad()
 		loss = 0
-		for i in range(len(self.cameras)):    
-			bake_tex = TexturesUV([bake_maps[i]], tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+		for i in range(len(self.cameras)):
+			bake_tex = TexturesUV([bake_maps[i]]*3, tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
 			tmp_mesh.textures = bake_tex
 			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights, device=self.device)
 			predicted_rgb = images_predicted[..., :-1]
@@ -564,26 +580,34 @@ class UVProjection():
 		optimizer.step()
 
 		total_weights = 0
-		baked = 0
+		baked_list = []
+		# TODO: Here the batch might also be need.
+		# TODO: I check the gradient here, however it is zero, I am not sure waht happen?
+		grouped_baked = [torch.zeros_like(bake_maps[0]) for _ in range(3)]
+		grouped_weights = [torch.zeros_like(self.gradient_maps[0][0]) for _ in range(3)]
+
 		for i in range(len(bake_maps)):
-			normalized_baked_map = bake_maps[i].detach() / (self.gradient_maps[i] + 1E-8)
-			bake_map = voronoi_solve(normalized_baked_map, self.gradient_maps[i][...,0])
-			weight = self.visible_triangles[i] * (self.cos_maps[i]) ** exp
+			normalized_baked_map = bake_maps[i].detach() / (self.gradient_maps[i%12][i//12] + 1E-8)
+			bake_map = voronoi_solve(normalized_baked_map, self.gradient_maps[i%12][i//12][...,0])
+			weight = self.visible_triangles[i%12] * (self.cos_maps[i%12][i//12]) ** exp
 			if noisy:
 				noise = torch.rand(weight.shape[:-1]+(1,), generator=generator).type(weight.dtype).to(weight.device)
 				weight *= noise
-			total_weights += weight
-			baked += bake_map * weight
-		baked /= total_weights + 1E-8
-		baked = voronoi_solve(baked, total_weights[...,0])
+			group_idx = i // 12  # 计算当前分组的索引（0，1 或 2）
+			grouped_weights[group_idx] += weight
+			grouped_baked[group_idx] += bake_map * weight
 
-		bake_tex = TexturesUV([baked], tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+		for group_idx in range(len(tmp_mesh)):
+			grouped_baked[group_idx] /= (grouped_weights[group_idx] + 1E-8)
+
+		bake_tex = TexturesUV(grouped_baked, tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
 		tmp_mesh.textures = bake_tex
 		extended_mesh = tmp_mesh.extend(len(self.cameras))
-		images_predicted = self.renderer(extended_mesh, cameras=self.cameras, lights=self.lights)
+		images_predicted = self.renderer(extended_mesh, cameras=cameras_expanded, lights=self.lights)
+		grouped_baked = [baked.permute(2, 0, 1) for baked in grouped_baked]
 		learned_views = [image.permute(2, 0, 1) for image in images_predicted]
 
-		return learned_views, baked.permute(2, 0, 1), total_weights.permute(2, 0, 1)
+		return learned_views, grouped_baked, total_weights.permute(2, 0, 1)
 
 
 	# Move the internel data to a specific device
