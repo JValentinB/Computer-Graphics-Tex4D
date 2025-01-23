@@ -672,14 +672,16 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 							return_dict=False,
 						)[0]
 						noise_pred_list.append(noise_pred)
-					# TODO: 这里有问题！！！
-					noise_pred_list = [torch.index_select(noise_pred, dim=0, index=torch.tensor(meta[1], device=self._execution_device)) for noise_pred, meta in zip(noise_pred_list, self.group_metas)]
+					# noise_pred_list = torch.index_select(noise_pred, dim=0,
+					# 										   index=torch.tensor(self.group_metas[0][0],
+					# 															  device=self._execution_device))
+					noise_pred_list = [torch.index_select(noise_pred, dim=0, index=torch.tensor(meta[1], device=self._execution_device)) for noise_pred, meta in zip(noise_pred_list, group_metas_batches)]
 					noise_pred = torch.cat(noise_pred_list, dim=0)
 					down_block_res_samples_list = None
 					mid_block_res_sample_list = None
 					noise_pred_list = None
 					model_input_batches = prompt_embeds_batches = down_block_res_samples_batches = mid_block_res_sample_batches = None
-
+					# TODO：Need to check this
 					result_groups[prompt_tag] = noise_pred
 
 				positive_noise_pred = result_groups["positive"]
@@ -687,11 +689,6 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 				# perform guidance
 				if do_classifier_free_guidance:
 					noise_pred = result_groups["negative"] + guidance_scale * (positive_noise_pred - result_groups["negative"])
-
-
-				if do_classifier_free_guidance and guidance_rescale > 0.0:
-					# Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
-					noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 
 				self.uvp.to(self._execution_device)
 				# compute the previous noisy sample x_t -> x_t-1
