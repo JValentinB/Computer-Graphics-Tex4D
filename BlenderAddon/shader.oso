@@ -1,0 +1,13 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.13.7.0
+# options: -o C:\Users\jovab\Desktop\Tex4D\Computer-Graphics-Tex4D\BlenderAddon\shader.oso -IC:\Program Files\Blender Foundation\Blender 4.3\4.3\scripts\addons_core\cycles\shader
+shader TextureMorphShader
+param	color	Texture1	0 0 0		%read{0,0} %write{2147483647,-1}
+param	color	Texture2	1 1 1		%read{0,0} %write{2147483647,-1}
+param	float	BlendFactor	0.5		%read{0,0} %write{2147483647,-1}
+oparam	color	ColorOut	1 0.100000001 0.200000003		%read{2147483647,-1} %write{0,0}
+code ___main___
+# C:\\Users\\jovab\\Desktop\\Tex4D\\Computer-Graphics-Tex4D\\BlenderAddon\\shader.osl:11
+# }
+	mix		ColorOut Texture1 Texture2 BlendFactor 	%filename{"C:\\Users\\jovab\\Desktop\\Tex4D\\Computer-Graphics-Tex4D\\BlenderAddon\\shader.osl"} %line{11} %argrw{"wrrr"}
+	end
