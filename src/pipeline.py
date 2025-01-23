@@ -516,7 +516,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
 		intermediate_results = []
 		# Still don't know how this background_colors work.
-		background_colors = [random.choice(list(color_constants.keys())) for i in range(len(self.camera_poses))]
+		background_colors = [random.choice(list(color_constants.keys())) for i in range(len(self.camera_poses)*len(self.uvp.mesh))]
 		dbres_sizes_list = []
 		mbres_size_list = []
 		with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -743,9 +743,9 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 				# 2. Shuffle background colors; only black and white used after certain timestep
 				if (1-t/num_timesteps) < shuffle_background_change:
-					background_colors = [random.choice(list(color_constants.keys())) for i in range(len(self.camera_poses))]
+					background_colors = [random.choice(list(color_constants.keys())) for i in range(len(self.camera_poses) * len(self.uvp.mesh))]
 				elif (1-t/num_timesteps) < shuffle_background_end:
-					background_colors = [random.choice(["black","white"]) for i in range(len(self.camera_poses))]
+					background_colors = [random.choice(["black","white"]) for i in range(len(self.camera_poses) * len(self.uvp.mesh))]
 				else:
 					background_colors = background_colors
 
@@ -753,7 +753,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 				# Logging at "log_interval" intervals and last step
 				# Choose to uses color approximation or vae decoding
-				if i % log_interval == log_interval-1 or t == 1:
+				if i % log_interval == log_interval - 1 or t == 1:
 					if view_fast_preview:
 						decoded_results = []
 						for latent_images in intermediate_results[-1]:

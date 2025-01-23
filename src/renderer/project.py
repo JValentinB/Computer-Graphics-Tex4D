@@ -438,6 +438,7 @@ class UVProjection():
 
 	# Multiple screen pixels could pass gradient to a same texel
 	# We can precalculate this gradient strength and use it to normalize gradients when we bake textures
+	# TODO: Here the gradient is always zero, need to be checked!
 	@torch.enable_grad()
 	def calculate_tex_gradient(self, channels=None):
 		if not channels:
@@ -571,7 +572,7 @@ class UVProjection():
 		optimizer.zero_grad()
 		loss = 0
 		for i in range(len(self.cameras)):
-			bake_tex = TexturesUV([bake_maps[i]]*3, tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+			bake_tex = TexturesUV([bake_maps[i]]*len(self.mesh), tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
 			tmp_mesh.textures = bake_tex
 			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights, device=self.device)
 			predicted_rgb = images_predicted[..., :-1]
@@ -583,8 +584,8 @@ class UVProjection():
 		baked_list = []
 		# TODO: Here the batch might also be need.
 		# TODO: I check the gradient here, however it is zero, I am not sure waht happen?
-		grouped_baked = [torch.zeros_like(bake_maps[0]) for _ in range(3)]
-		grouped_weights = [torch.zeros_like(self.gradient_maps[0][0]) for _ in range(3)]
+		grouped_baked = [torch.zeros_like(bake_maps[0]) for _ in range(len(self.mesh))]
+		grouped_weights = [torch.zeros_like(self.gradient_maps[0][0]) for _ in range(len(self.mesh))]
 
 		for i in range(len(bake_maps)):
 			normalized_baked_map = bake_maps[i].detach() / (self.gradient_maps[i%12][i//12] + 1E-8)
@@ -593,7 +594,7 @@ class UVProjection():
 			if noisy:
 				noise = torch.rand(weight.shape[:-1]+(1,), generator=generator).type(weight.dtype).to(weight.device)
 				weight *= noise
-			group_idx = i // 12  # 计算当前分组的索引（0，1 或 2）
+			group_idx = i // 12  # Calculate the index of the current grouping (0, 1 or 2)
 			grouped_weights[group_idx] += weight
 			grouped_baked[group_idx] += bake_map * weight
 
@@ -606,8 +607,9 @@ class UVProjection():
 		images_predicted = self.renderer(extended_mesh, cameras=cameras_expanded, lights=self.lights)
 		grouped_baked = [baked.permute(2, 0, 1) for baked in grouped_baked]
 		learned_views = [image.permute(2, 0, 1) for image in images_predicted]
+		grouped_weights = [weight.permute(2, 0, 1) for weight in grouped_weights]
 
-		return learned_views, grouped_baked, total_weights.permute(2, 0, 1)
+		return learned_views, grouped_baked, grouped_weights
 
 
 	# Move the internel data to a specific device
