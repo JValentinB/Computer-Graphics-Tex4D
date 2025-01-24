@@ -185,7 +185,6 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			render_rgb_size=None,
 			texture_size=None,
 			texture_rgb_size=None,
-
 			max_batch_size=24,
 			logging_config=None,
 		):
@@ -373,7 +372,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		
 		num_timesteps = self.scheduler.config.num_train_timesteps
 		initial_controlnet_conditioning_scale = controlnet_conditioning_scale
-		log_interval = logging_config.get("log_interval", 10)
+		log_interval = logging_config.get("log_interval", 2)
+		log_interval = 2
 		view_fast_preview = logging_config.get("view_fast_preview", True)
 		tex_fast_preview = logging_config.get("tex_fast_preview", True)
 
@@ -773,16 +773,16 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						result_image = np.concatenate(decoded_results, axis=0)
 						numpy_to_pil(result_image)[0].save(f"{self.intermediate_dir}/step_{i:02d}.jpg")
 
-					if not t < (1-multiview_diffusion_end)*num_timesteps:
-						if tex_fast_preview:
-							tex = latent_tex.clone()
-							texture_color = latent_preview(tex[None, ...])
-							numpy_to_pil(texture_color)[0].save(f"{self.intermediate_dir}/texture_{i:02d}.jpg")
-						else:
-							self.uvp_rgb.to(self._execution_device)
-							result_tex_rgb, result_tex_rgb_output = get_rgb_texture(self.vae, self.uvp_rgb, pred_original_sample)
-							numpy_to_pil(result_tex_rgb_output)[0].save(f"{self.intermediate_dir}/texture_{i:02d}.png")
-							self.uvp_rgb.to("cpu")
+					# if not t < (1-multiview_diffusion_end)*num_timesteps:
+					# 	if tex_fast_preview:
+					# 		tex = latent_tex.clone()
+					# 		texture_color = latent_preview(tex[None, ...])
+					# 		numpy_to_pil(texture_color)[0].save(f"{self.intermediate_dir}/texture_{i:02d}.jpg")
+					# 	else:
+					# 		self.uvp_rgb.to(self._execution_device)
+					# 		result_tex_rgb, result_tex_rgb_output = get_rgb_texture(self.vae, self.uvp_rgb, pred_original_sample)
+					# 		numpy_to_pil(result_tex_rgb_output)[0].save(f"{self.intermediate_dir}/texture_{i:02d}.png")
+					# 		self.uvp_rgb.to("cpu")
 
 				self.uvp.to("cpu")
 
@@ -806,7 +806,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		self.uvp.to(self._execution_device)
 		self.uvp_rgb.to(self._execution_device)
 		result_tex_rgb, result_tex_rgb_output = get_rgb_texture(self.vae, self.uvp_rgb, latents)
-		self.uvp.save_mesh(f"{self.result_dir}/textured.obj", result_tex_rgb.permute(1,2,0))
+		for i, tex_rgb in enumerate(result_tex_rgb):
+			self.uvp.save_mesh(f"{self.result_dir}/textured_{i}.obj", tex_rgb.permute(1,2,0))
 
 
 		self.uvp_rgb.set_texture_map(result_tex_rgb)

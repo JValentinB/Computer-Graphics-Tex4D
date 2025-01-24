@@ -376,6 +376,7 @@ class UVProjection():
 		tmp_mesh = self.mesh.clone()
 		tmp_mesh = tmp_mesh.extend(len(self.cameras))
 		tmp_mesh_num = len(tmp_mesh)
+		# cameras_expanded = len(self.cameras)
 		if tmp_mesh_num != len(self.cameras):
 			# extend cameras number
 			cameras_expanded = FoVOrthographicCameras(
@@ -527,6 +528,7 @@ class UVProjection():
 		mesh_num = len(self.mesh.clone())
 		meshes = self.mesh.extend(len(self.cameras))
 		tmp_mesh_num = len(meshes)
+		# cameras_expanded = len(self.cameras)
 		if tmp_mesh_num != len(self.cameras):
 			# extend cameras number
 			cameras_expanded = FoVOrthographicCameras(
@@ -558,7 +560,7 @@ class UVProjection():
 		bake_maps = [torch.zeros(self.target_size + (views[0].shape[2],), device=self.device, requires_grad=True) for
 					 view in views]
 		optimizer = torch.optim.SGD(bake_maps, lr=1, momentum=0)
-
+		# cameras_expanded = len(self.cameras)
 		if tmp_mesh_num != len(self.cameras):
 			# extend cameras number
 			cameras_expanded = FoVOrthographicCameras(
