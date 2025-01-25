@@ -20,15 +20,14 @@ from diffusers.utils import (
 	randn_tensor, 
 	numpy_to_pil,
 	pt_to_pil,
-	# make_image_grid,
+	make_image_grid,
 	is_accelerate_available,
 	is_accelerate_version,
 	is_compiled_module,
 	logging,
-	randn_tensor,
 	replace_example_docstring
 	)
-
+#from diffusers.utils.torch_utils import (randn_tensor, is_compiled_module)
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from diffusers.models.attention_processor import Attention, AttentionProcessor
@@ -514,6 +513,12 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		background_colors = [random.choice(list(color_constants.keys())) for i in range(len(self.camera_poses)*self.key_frames_num)]
 		dbres_sizes_list = []
 		mbres_size_list = []
+
+		# 9. Tex4D: Reference UV Texture and mask
+		reference_uv = torch.zeros_like(latent_tex)
+		reference_mask = torch.ones(reference_uv.shape[:2], dtype=torch.uint8)
+
+
 		with self.progress_bar(total=num_inference_steps) as progress_bar:
 			for i, t in enumerate(timesteps):
 
@@ -680,6 +685,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						timestep=t, 
 						sample=latents, 
 						texture=latent_tex,
+						reference_uv=reference_uv,
+						reference_mask=reference_mask,
 						return_dict=True, 
 						main_views=[], 
 						exp= current_exp,
@@ -689,6 +696,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 					pred_original_sample = step_results["pred_original_sample"]
 					latents = step_results["prev_sample"]
 					latent_tex = step_results["prev_tex"]
+					reference_uv = step_results["reference_uv"]
+					reference_mask = step_results["reference_mask"]
 
 					# Composit latent foreground with random color background
 					background_latents = [self.color_latents[color] for color in background_colors]

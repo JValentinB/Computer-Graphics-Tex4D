@@ -65,8 +65,9 @@ pipe = StableDiffusionControlNetPipeline.from_pretrained(
 
 
 pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
-
-syncmvd = StableSyncMVDPipeline(**pipe.components)
+components = pipe.components  # Get the components dictionary
+#components.pop("image_encoder", None)
+syncmvd = StableSyncMVDPipeline(**components)
 
 
 

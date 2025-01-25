@@ -1,5 +1,6 @@
 import torch
 from diffusers.utils import randn_tensor
+from diffusers.utils.torch_utils import randn_tensor
 
 '''
 
@@ -16,6 +17,8 @@ def step_tex(
 		timestep: int,
 		sample: torch.FloatTensor,
 		texture: None,
+		reference_uv: torch.FloatTensor,
+		reference_mask: torch.Tensor,
 		generator=None,
 		return_dict: bool = True,
 		guidance_scale = 1,
@@ -80,8 +83,8 @@ def step_tex(
 
 	original_views = [view for view in pred_original_sample]
 	original_views, original_tex, visibility_weights = uvp.bake_texture(views=original_views, main_views=main_views, exp=exp)
-	uvp.set_texture_map(original_tex)
-	original_views = uvp.render_textured_views()
+	uvp.set_texture_map(original_tex)	
+	original_views = uvp.render_textured_views()																																			
 	original_views = torch.stack(original_views, axis=0)[:,:-1,...]
 
 	# 5. Compute predicted previous sample µ_t
@@ -91,7 +94,10 @@ def step_tex(
 	if isinstance(texture, (tuple, list)):
 		# 如果是 tuple 或 list，使用 torch.stack 合并为一个 tensor
 		texture = torch.stack(texture, dim=0)
-	prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
+
+	# 5.1 Tex4D previous texture calculation
+	#prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
+	prev_tex = previous_texture_tex4d(texture, original_tex, reference_uv, reference_mask, alpha_prod_t, beta_prod_t, alpha_prod_t_prev, beta_prod_t_prev)
 
 	# 6. Add noise
 	variance = 0
@@ -125,9 +131,25 @@ def step_tex(
 		pred_prev_sample[i] = view[:-1]
 	masks = [view[-1:] for view in prev_views]
 
-	return {"prev_sample": pred_prev_sample, "pred_original_sample":pred_original_sample, "prev_tex": prev_tex}
+	return {"prev_sample": pred_prev_sample, "pred_original_sample":pred_original_sample, "prev_tex": prev_tex ,"reference_uv": reference_uv,  "reference_mask": reference_mask}
 
 	if not return_dict:
-		return pred_prev_sample, pred_original_sample
+		return pred_prev_sample, pred_original_sample, prev_tex, reference_uv, reference_mask
 	pass
 
+@torch.no_grad()
+def previous_texture_tex4d(current_tex, original_tex, reference_uv, reference_mask, alpha_t, beta_t, alpha_t_prev, beta_t_prev, blending_weight = 0.2):
+	# Eq. (6) in Tex4D
+	factor = (alpha_t / beta_t) ** (0.5) * (alpha_t **(0.5) * current_tex - previous_tex) + beta_t ** (0.5) * current_tex
+	previous_tex = alpha_t_prev ** (0.5) * original_tex + beta_t_prev ** (0.5) * factor
+
+	# Update reference uv and mask
+	empty_texels = reference_uv.sum(dim=-1) == 0
+	reference_uv[empty_texels] = original_tex[empty_texels]
+	reference_mask[empty_texels] == 0
+
+	# Eq. (8) in Tex4D: Reference UV blending
+	new_tex = (1- blending_weight) * previous_tex + blending_weight * reference_uv
+	previous_tex = new_tex * reference_mask + reference_uv * (1- reference_mask)
+
+	return previous_tex, reference_uv, reference_mask
