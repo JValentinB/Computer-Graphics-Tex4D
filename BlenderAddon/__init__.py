@@ -28,6 +28,9 @@ class ExportPanel(bpy.types.Panel):
         layout.prop(scene, "num_views")
         layout.prop(scene, "camera_distance")
         
+        if (scene.depth_progress > 0.0):
+            layout.progress(text=f"Depth Images Progress:{(scene.depth_progress*100):.0f}%", factor=scene.depth_progress, type='BAR')
+        
         layout.separator()
         layout.prop(scene, "inference_steps")
         layout.prop(scene, "image_sequence")
@@ -35,6 +38,10 @@ class ExportPanel(bpy.types.Panel):
         
         layout.separator()
         layout.prop(scene, "output_directory")
+        
+        if (scene.model_progress > 0.0):
+            layout.progress(text=f"Model Progress:{(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
+        
         layout.operator("object.export_data", text="Generate")
 
 class ExportOperator(bpy.types.Operator):
@@ -82,13 +89,8 @@ class ExportOperator(bpy.types.Operator):
             
                 steps = scene.inference_steps
                 # Send the mesh and text prompt to the server
-                send_meshes_and_prompt(mesh_dir, prompt, steps)
-            
-                # Clean up: delete the temporary file
-                try:
-                    os.remove(mesh_dir)
-                except OSError as e:
-                    print("Error deleting temporary file:", e)
+                send_meshes_and_prompt(context, mesh_dir, prompt, steps)
+
         else: 
             mesh_path = os.path.join(temp_dir, "mesh.obj")
         
@@ -98,13 +100,7 @@ class ExportOperator(bpy.types.Operator):
             
                 steps = scene.inference_steps
                 # Send the mesh and text prompt to the server
-                send_meshes_and_prompt(mesh_path, prompt, steps)
-            
-                # Clean up: delete the temporary file
-                try:
-                    os.remove(mesh_path)
-                except OSError as e:
-                    print("Error deleting temporary file:", e)
+                send_meshes_and_prompt(context, mesh_path, prompt, steps)
             
         return {'FINISHED'}
     
@@ -145,6 +141,25 @@ def register():
         name="Image Sequence",
         description="Wether to generate a single texture or texture sequence",
         default=False
+    )
+    
+    # Depth images progress bar
+    bpy.types.Scene.depth_progress = bpy.props.FloatProperty(
+        name="Depth Images Progress",
+        description="Progress of depth image export",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        subtype='PERCENTAGE'
+    )
+    # Model progress bar
+    bpy.types.Scene.model_progress = bpy.props.FloatProperty(
+        name="Model Progress",
+        description="Progress of model export",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        subtype='PERCENTAGE'
     )
     
     # Register the custom shader node
