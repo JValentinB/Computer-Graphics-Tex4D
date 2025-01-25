@@ -535,8 +535,9 @@ class UVProjection():
 				zfar=self.cameras.zfar.repeat(mesh_num),
 				device=self.device,
 			)
-
-		images_predicted = self.renderer(meshes, cameras=cameras_expanded, lights=self.lights)
+			images_predicted = self.renderer(meshes, cameras=cameras_expanded, lights=self.lights)
+		else:
+			images_predicted = self.renderer(meshes, cameras=self.cameras, lights=self.lights)
 
 		return [image.permute(2, 0, 1) for image in images_predicted]
 

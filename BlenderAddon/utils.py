@@ -116,6 +116,8 @@ def export_uv_maps(self, context, output_directory):
 def export_depth_images(self, context, output_directory):
     scene = context.scene
     obj = context.object
+    scene.depth_progress = 0.0
+    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
     # Ensure there is a selected object
     if not obj:
@@ -126,22 +128,30 @@ def export_depth_images(self, context, output_directory):
     num_camera_views = context.scene.num_views
     distance = context.scene.camera_distance
     views = random_camera_views(num_camera_views, radius=distance)
-    
-    
+
     # Export depth images for each view
     num_keyframes = context.scene.num_keyframes
     keyframes = get_keyframes(num_keyframes)
+
+    current_render = 0
+    total_renders = len(views) * len(keyframes)
     for v, view_matrix in enumerate(views):
         camera = create_camera(view_matrix, v)
-        
+
         path = os.path.join(output_directory, f"view_{v}.npy")
         np.save(path, view_matrix)
-        
+
         for keyframe in keyframes:
+            # Update progress
+            current_render += 1
+            scene.depth_progress = current_render / total_renders
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
             scene.frame_set(keyframe)
             render_depth(self, camera, keyframe, v, output_directory)
-            
-        # bpy.data.objects.remove(camera, do_unlink=True)
+
+    scene.depth_progress = 0.0
+    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
             
 def render_depth(self, camera, keyframe, view_number, output_directory):
     scene = bpy.context.scene

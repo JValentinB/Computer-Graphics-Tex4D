@@ -7,7 +7,7 @@ import traceback
 from PIL import Image
 from io import BytesIO
 
-def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inference_steps=10):
+def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inference_steps=10, progress_callback=None):
     try:
         # Initialize StableSyncMVDPipeline with preloaded components
         syncmvd = StableSyncMVDPipeline(**pipe.components)
@@ -74,6 +74,8 @@ def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inf
             shuffle_background_end=opt['shuffle_bg_end'],
             logging_config={"output_dir": os.path.dirname(output_path)},
             cond_type='depth',  # Adjust based on your logic
+            
+            progress_callback=progress_callback,
         )
         print("Finished SyncMVD.")
         

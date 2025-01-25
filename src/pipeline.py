@@ -252,10 +252,10 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		self.uvp = UVP(texture_size=texture_size, render_size=latent_size, sampling_mode="nearest", channels=4, device=self._execution_device)
 		# TODO: need to change the Mesh Path to support all (Done)
 		if mesh_path.lower().endswith(".obj"):
-			self.uvp.load_mesh(mesh_path, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
+			self.uvp.load_mesh([mesh_path], scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
 		elif mesh_path.lower().endswith(".glb"):
 			self.uvp.load_glb_mesh(mesh_path, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
-		# TODO: May need to be changed to Time-sequnce
+		# TODO: May need to be changed to Time-sequence
 		elif os.path.isdir(mesh_path):
 			mesh_list = []
 			for file in os.listdir(mesh_path):
@@ -346,6 +346,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		logging_config=None,
 		cond_type="depth",
+  
+		progress_callback=None,
 	):
 		
 
@@ -399,17 +401,17 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		# 1. Check inputs. Raise error if not correct   # it is unnecesary!
 		# print(f"___This conditioning scale is: {controlnet_conditioning_scale}___")
-		self.check_inputs(
-			prompt,
-			torch.zeros((1,3,height,width), device=self._execution_device),
-			callback_steps,
-			negative_prompt,
-			None,
-			None,
-			controlnet_conditioning_scale,
-			control_guidance_start,
-			control_guidance_end,
-		)
+		# self.check_inputs(
+		# 	prompt,
+		# 	torch.zeros((1,3,height,width), device=self._execution_device),
+		# 	callback_steps,
+		# 	negative_prompt,
+		# 	None,
+		# 	None,
+		# 	controlnet_conditioning_scale,
+		# 	control_guidance_start,
+		# 	control_guidance_end,
+		# )
 
 
 		# 2. Define call parameters
@@ -521,6 +523,10 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		mbres_size_list = []
 		with self.progress_bar(total=num_inference_steps) as progress_bar:
 			for i, t in enumerate(timesteps):
+       
+				if progress_callback:
+					progress_percentage = (progress_bar.n / progress_bar.total) * 100
+					progress_callback(progress_percentage) 
 
 				# mix prompt embeds  according to azim angle
 				positive_prompt_embeds = [azim_prompt(prompt_embed_dict, pose) for pose in self.camera_poses]
