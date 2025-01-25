@@ -60,23 +60,17 @@ elif opt.cond_type == "depth":
 	controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth", variant="fp16", torch_dtype=torch.float16)			
 
 pipe = StableDiffusionControlNetPipeline.from_pretrained(
-	"runwayml/stable-diffusion-v1-5", controlnet=controlnet, torch_dtype=torch.float16, image_encoder=None
+	"runwayml/stable-diffusion-v1-5", controlnet=controlnet, torch_dtype=torch.float16
 )
 
 
 pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
 
-## Remove image_encoder
-if "image_encoder" in pipe.components:
-	del pipe.components["image_encoder"]
-	del pipe.image_encoder
-
 syncmvd = StableSyncMVDPipeline(**pipe.components)
 
 
 
-print(f"_______________Using conditioning scale {opt.conditioning_scale}")
-result_tex_rgb, textured_views, v = syncmvd(
+result_tex_rgb = syncmvd(
 	prompt=opt.prompt,
 	height=opt.latent_view_size*8,
 	width=opt.latent_view_size*8,
@@ -116,4 +110,4 @@ result_tex_rgb, textured_views, v = syncmvd(
 	
 	)
 
-display(v)
+# display(v)
