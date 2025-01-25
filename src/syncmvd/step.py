@@ -1,5 +1,6 @@
 import torch
-from diffusers.utils.torch_utils import randn_tensor
+from diffusers.utils import randn_tensor
+
 '''
 
 	Customized Step Function
@@ -79,16 +80,17 @@ def step_tex(
 
 	original_views = [view for view in pred_original_sample]
 	original_views, original_tex, visibility_weights = uvp.bake_texture(views=original_views, main_views=main_views, exp=exp)
-
-	# TODO： I think the UV reference module should be introduced here. By the way, the refenrence map used in the self-attention layer should be removed.
 	uvp.set_texture_map(original_tex)
 	original_views = uvp.render_textured_views()
 	original_views = torch.stack(original_views, axis=0)[:,:-1,...]
-	original_tex = torch.stack(original_tex, axis=0)
+
 	# 5. Compute predicted previous sample µ_t
 	# See formula (7) from https://arxiv.org/pdf/2006.11239.pdf
 	# pred_prev_sample = pred_original_sample_coeff * pred_original_sample + current_sample_coeff * sample
-	# TODO： reimplement the denoising step (be aware that the formular is quite different)
+	original_tex = torch.stack(original_tex, dim = 0)
+	if isinstance(texture, (tuple, list)):
+		# 如果是 tuple 或 list，使用 torch.stack 合并为一个 tensor
+		texture = torch.stack(texture, dim=0)
 	prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
 
 	# 6. Add noise
@@ -115,7 +117,7 @@ def step_tex(
 			variance = (scheduler._get_variance(t, predicted_variance=variance_tex) ** 0.5) * variance_noise
 
 	prev_tex = prev_tex + variance
-
+	prev_tex = torch.unbind(prev_tex, dim=0)
 	uvp.set_texture_map(prev_tex)
 	prev_views = uvp.render_textured_views()
 	pred_prev_sample = torch.clone(sample)

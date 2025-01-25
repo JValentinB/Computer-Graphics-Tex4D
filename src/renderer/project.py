@@ -37,18 +37,16 @@ class UVProjection():
 		self.target_size = (texture_size,texture_size)
 		self.render_size = render_size
 		self.sampling_mode = sampling_mode
-
+		self.mesh = []
 
 
 	# Load obj mesh, rescale the mesh to fit into the bounding box
-	def load_mesh(self, mesh_path_list, scale_factor=2.0, auto_center=True, autouv=False):
-		verts_list = []
-		faces_list = []
-		textures_list = []
-
-		for mesh_path in mesh_path_list:
-			mesh = load_objs_as_meshes([mesh_path], device=self.device)
-
+	def load_mesh(self, mesh_paths, scale_factor=2.0, auto_center=True, autouv=False):
+		if isinstance(mesh_paths, list):
+			meshes = [load_objs_as_meshes([mesh_path], device=self.device) for mesh_path in mesh_paths]
+		else:
+			meshes = [load_objs_as_meshes([mesh_paths], device=self.device)]
+		for i, mesh in enumerate(meshes):
 			if auto_center:
 				verts = mesh.verts_packed()
 				max_bb = (verts - 0).max(0)[0]
@@ -58,38 +56,12 @@ class UVProjection():
 				mesh.offset_verts_(-center)
 				mesh.scale_verts_((scale_factor / float(scale)))
 			else:
-				mesh.scale_verts_(scale_factor)
+				mesh.scale_verts_((scale_factor))
 
-			print(f"_____Autouv={autouv}, texture={mesh.textures}")
 			if autouv or (mesh.textures is None):
-				# print("_____Unwrapping mesh...")
 				# mesh = self.uv_unwrap(mesh)
-				print("___using defined uv map")
-				mesh = self.get_uvmap(mesh_path, mesh)
-
-
-			verts_list.extend(mesh.verts_list())
-			faces_list.extend(mesh.faces_list())
-			# textures_list.append(mesh.textures.clone())
-
-			if mesh.textures is not None:
-				textures_list.append(mesh.textures)
-			else:
-				verts_uvs = torch.zeros_like(mesh.verts_packed()[:, :2], device=self.device)
-				faces_uvs = mesh.faces_packed()
-				new_map = torch.zeros(self.target_size+(self.channels,), device=mesh.device)
-				textures_list.append(TexturesUV(maps=[new_map],verts_uvs=[verts_uvs], faces_uvs=[faces_uvs]))
-
-		self.mesh = Meshes(
-			verts=verts_list,
-			faces=faces_list,
-			textures=TexturesUV(
-				maps = [t.maps_padded()[0] for t in textures_list],
-				verts_uvs=[t.verts_uvs_list()[0] for t in textures_list],
-				faces_uvs=[t.faces_uvs_list()[0] for t in textures_list]
-			)
-		)
-		self.mesh_uv = self.mesh
+				mesh = self.get_uvmap(mesh_paths[i], mesh)
+			self.mesh.append(mesh)
 
 
 	def load_glb_mesh(self, mesh_path, scale_factor=2.0, auto_center=True, autouv=False):
@@ -114,12 +86,12 @@ class UVProjection():
 
 
 	# Save obj mesh
-	def save_mesh(self, mesh_path, texture):
+	def save_mesh(self, mesh_path, texture, i):
 		save_obj(mesh_path, 
-				self.mesh.verts_list()[0],
-				self.mesh.faces_list()[0],
-				verts_uvs= self.mesh.textures.verts_uvs_list()[0],
-				faces_uvs= self.mesh.textures.faces_uvs_list()[0],
+				self.mesh[i].verts_list()[0],
+				self.mesh[i].faces_list()[0],
+				verts_uvs= self.mesh[i].textures.verts_uvs_list()[0],
+				faces_uvs= self.mesh[i].textures.faces_uvs_list()[0],
 				texture_map=texture)
 
 	# Code referred to TEXTure code (https://github.com/TEXTurePaper/TEXTurePaper.git)
@@ -141,7 +113,7 @@ class UVProjection():
 
 		vt = torch.from_numpy(vt_np.astype(np.float32)).type(verts_list.dtype).to(mesh.device)
 		ft = torch.from_numpy(ft_np.astype(np.int64)).type(faces_list.dtype).to(mesh.device)
-		
+
 		new_map = torch.zeros(self.target_size+(self.channels,), device=mesh.device)
 		new_tex = TexturesUV(
 			[new_map], 
@@ -156,7 +128,7 @@ class UVProjection():
 	def get_uvmap(self, obj_path, mesh):
 		# Parse the .obj file
 		verts, faces, aux = load_obj(obj_path, load_textures=True)
-		
+
 		# Extract UV vertex coordinates and face indices for UVs
 		verts_uvs = aux.verts_uvs.to(mesh.device)  # [N, 2]
 		faces_uvs = faces.textures_idx.to(mesh.device)  # [F, 3]
@@ -181,33 +153,26 @@ class UVProjection():
 		number of unique vertices its UV layout, while the faces list
 		is intact.
 	'''
-	# TODO: I am not sure whether this function will change the obj file so that the mesh doesn't match the origin one exported from Blender
 	def disconnect_faces(self):
-
-		mesh = self.mesh
-		verts_list = mesh.verts_list()
-		faces_list = mesh.faces_list()
-		verts_uvs_list = mesh.textures.verts_uvs_list()
-		faces_uvs_list = mesh.textures.faces_uvs_list()
-		packed_list = [v[f] for v,f in zip(verts_list, faces_list)]
-		verts_disconnect = [
-			torch.zeros(
-				(verts_uvs_list[i].shape[0], 3),
-				dtype=verts_list[0].dtype,
-				device=verts_list[0].device
-			)
-			for i in range(len(verts_list))]
-		for i in range(len(verts_list)):
-			verts_disconnect[i][faces_uvs_list[i].reshape(-1)] = packed_list[i].reshape(-1, 3)
-
-
-
-		assert not mesh.has_verts_normals(), "Not implemented for vertex normals"
-		self.mesh_d = Meshes(
-			verts=verts_disconnect,
-			faces=faces_uvs_list,
-			textures=mesh.textures
-		)
+		self.mesh_d = []
+		# mesh = self.mesh
+		for mesh in self.mesh:
+			verts_list = mesh.verts_list()
+			faces_list = mesh.faces_list()
+			verts_uvs_list = mesh.textures.verts_uvs_list()
+			faces_uvs_list = mesh.textures.faces_uvs_list()
+			packed_list = [v[f] for v,f in zip(verts_list, faces_list)]
+			verts_disconnect_list = [
+				torch.zeros(
+					(verts_uvs_list[i].shape[0], 3),
+					dtype=verts_list[0].dtype,
+					device=verts_list[0].device
+				)
+				for i in range(len(verts_list))]
+			for i in range(len(verts_list)):
+				verts_disconnect_list[i][faces_uvs_list] = packed_list[i]
+			assert not mesh.has_verts_normals(), "Not implemented for vertex normals"
+			self.mesh_d.append(Meshes(verts_disconnect_list, faces_uvs_list, mesh.textures))
 		return self.mesh_d
 
 
@@ -218,42 +183,41 @@ class UVProjection():
 		z value as world space geometry.
 	'''
 	def construct_uv_mesh(self):
-		mesh = self.mesh_d
-		verts_list = mesh.verts_list()
-		verts_uvs_list = mesh.textures.verts_uvs_list()
-		# faces_list = [torch.flip(faces, [-1]) for faces in mesh.faces_list()]
-		new_verts_list = []
-		for i, (verts, verts_uv) in enumerate(zip(verts_list, verts_uvs_list)):
-			verts = verts.clone()
-			verts_uv = verts_uv.clone()
-			verts[...,0:2] = verts_uv[...,:]
-			verts = (verts - 0.5) * 2
-			verts[...,2] *= 1
-			new_verts_list.append(verts)
-		textures_uv = mesh.textures.clone()
-		self.mesh_uv = Meshes(new_verts_list, mesh.faces_list(), textures_uv)
+		self.mesh_uv = []
+		for mesh in self.mesh_d:
+			verts_list = mesh.verts_list()
+			verts_uvs_list = mesh.textures.verts_uvs_list()
+			# faces_list = [torch.flip(faces, [-1]) for faces in mesh.faces_list()]
+			new_verts_list = []
+			for i, (verts, verts_uv) in enumerate(zip(verts_list, verts_uvs_list)):
+				verts = verts.clone()
+				verts_uv = verts_uv.clone()
+				verts[...,0:2] = verts_uv[...,:]
+				verts = (verts - 0.5) * 2
+				verts[...,2] *= 1
+				new_verts_list.append(verts)
+			textures_uv = mesh.textures.clone()
+			self.mesh_uv.append(Meshes(new_verts_list, mesh.faces_list(), textures_uv))
 		return self.mesh_uv
 
 
 	# Set texture for the current mesh.
-	def set_texture_map(self, textures):
-		for i, texture in enumerate(textures):
-			new_map = texture.permute(1, 2, 0)
-			new_map = new_map.repeat(len(self.mesh), 1, 1, 1)
+	def set_texture_map(self, texture):
+		# TODO: Here I have a question, should 2 latent texture share the same sampling noise?
+		for i, mesh in enumerate(self.mesh):
+			new_map = texture[i].permute(1, 2, 0)
 			new_map = new_map.to(self.device)
 			new_tex = TexturesUV(
-				new_map,
-				self.mesh.textures.faces_uvs_padded(),
-				self.mesh.textures.verts_uvs_padded(),
+				[new_map],
+				mesh.textures.faces_uvs_padded(),
+				mesh.textures.verts_uvs_padded(),
 				sampling_mode=self.sampling_mode
 				)
-			self.mesh[i].textures = new_tex
+			mesh.textures = new_tex
 
 
 	# Set the initial normal noise texture
 	# No generator here for replication of the experiment result. Add one as you wish
-
-	# TODO: This should also be changed to a multi thread
 	def set_noise_texture(self, channels=None):
 		if not channels:
 			channels = self.channels
@@ -285,7 +249,7 @@ class UVProjection():
 			self.construct_uv_mesh()
 		self.calculate_tex_gradient()
 		self.calculate_visible_triangle_mask()
-		_,_,_,cos_maps,_, _ = self.render_geometry()
+		_, _, _, cos_maps, _, _= self.render_geometry()
 		self.calculate_cos_angle_weights(cos_maps)
 
 
@@ -327,39 +291,32 @@ class UVProjection():
 	def calculate_cos_angle_weights(self, cos_angles, fill=True, channels=None):
 		if not channels:
 			channels = self.channels
-		cos_maps = []
-		tmp_mesh = self.mesh.clone()
-		for i in range(len(self.cameras)):
+		cos_maps_list = []
+		for index, mesh in enumerate(self.mesh):
+			tmp_mesh = mesh.clone()
+			cos_maps = []
+			for i in range(len(self.cameras)):
 
-			zero_maps = [
-				torch.zeros(self.target_size + (self.channels,), device=self.device, requires_grad=True)
-				for _ in range(len(self.mesh))
-			]
+				zero_map = torch.zeros(self.target_size+(channels,), device=self.device, requires_grad=True)
+				optimizer = torch.optim.SGD([zero_map], lr=1, momentum=0)
+				optimizer.zero_grad()
+				zero_tex = TexturesUV([zero_map], tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+				tmp_mesh.textures = zero_tex
 
-			optimizer = torch.optim.SGD(zero_maps, lr=1, momentum=0)
-			optimizer.zero_grad()
-			zero_tex = TexturesUV(zero_maps, self.mesh.textures.faces_uvs_padded(), self.mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
-			tmp_mesh.textures = zero_tex
+				images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights)
 
-			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights)
+				loss = torch.sum((cos_angles[index][i,:,:,0:1]**1 - images_predicted)**2)
+				loss.backward()
+				optimizer.step()
 
-			loss = torch.sum((cos_angles[i,:,:,0:1]**1 - images_predicted)**2)
-			loss.backward()
-			optimizer.step()
-
-			if fill:
-				# Detach and divide each map in the list
-				zero_maps = [z.detach() / (g + 1E-8) for z, g in zip(zero_maps, self.gradient_maps[i])]
-				zero_maps = [
-					voronoi_solve(z, g[..., 0])
-					for z, g in zip(zero_maps, self.gradient_maps[i])
-				]
-
-			else:
-				# Detach and divide each map in the list
-				zero_maps = [z.detach() / (g + 1E-8) for z, g in zip(zero_maps, self.gradient_maps[i])]
-			cos_maps.append(zero_maps)
-		self.cos_maps = cos_maps
+				if fill:
+					zero_map = zero_map.detach() / (self.gradient_maps[index][i] + 1E-8)
+					zero_map = voronoi_solve(zero_map, self.gradient_maps[index][i][...,0])
+				else:
+					zero_map = zero_map.detach() / (self.gradient_maps[index][i]+1E-8)
+				cos_maps.append(zero_map)
+			cos_maps_list.append(cos_maps)
+		self.cos_maps = cos_maps_list
 
 		
 	# Get geometric info from fragment shader
@@ -371,32 +328,29 @@ class UVProjection():
 			size = self.renderer.rasterizer.raster_settings.image_size
 			self.renderer.rasterizer.raster_settings.image_size = image_size
 		shader = self.renderer.shader
-		self.renderer.shader = HardGeometryShader(device=self.device, cameras=self.cameras[0], lights=self.lights)
-		mesh_num = len(self.mesh.clone())
-		tmp_mesh = self.mesh.clone()
-		tmp_mesh = tmp_mesh.extend(len(self.cameras))
-		tmp_mesh_num = len(tmp_mesh)
-		# cameras_expanded = len(self.cameras)
-		if tmp_mesh_num != len(self.cameras):
-			# extend cameras number
-			cameras_expanded = FoVOrthographicCameras(
-				R=self.cameras.R.repeat(mesh_num, 1, 1),
-				T=self.cameras.T.repeat(mesh_num, 1),
-				znear=self.cameras.znear.repeat(mesh_num),
-				zfar=self.cameras.zfar.repeat(mesh_num),
-				device=self.device,
-			)
-		else:
-			cameras_expanded = self.cameras
-		# self.cameras = cameras_expanded
-		
-		verts, normals, depths, cos_angles, texels, fragments = self.renderer(tmp_mesh, cameras=cameras_expanded, lights=self.lights)
-		self.renderer.shader = shader
 
+		cos_angles_list = []
+		depths_list = []
+		normals_list = []
+		verts_list = []
+		texels_list = []
+		fragments_list = []
+		for mesh in self.mesh:
+			tmp_mesh = mesh.clone()
+			self.renderer.shader = HardGeometryShader(device=self.device, cameras=self.cameras[0], lights=self.lights)
+			verts, normals, depths, cos_angles, texels, fragments = self.renderer(tmp_mesh.extend(len(self.cameras)),
+																				  cameras=self.cameras, lights=self.lights)
+
+
+			cos_angles_list.append(cos_angles.detach())
+			depths_list.append(depths.detach())
+			normals_list.append(normals.detach())
+
+		self.renderer.shader = shader
 		if image_size:
 			self.renderer.rasterizer.raster_settings.image_size = size
 
-		return verts, normals, depths, cos_angles, texels, fragments
+		return verts, normals_list, depths_list, cos_angles_list,texels, fragments
 
 
 	# Project world normal to view space and normalize
@@ -439,33 +393,27 @@ class UVProjection():
 
 	# Multiple screen pixels could pass gradient to a same texel
 	# We can precalculate this gradient strength and use it to normalize gradients when we bake textures
-	# TODO: Here the gradient is always zero, need to be checked!
 	@torch.enable_grad()
 	def calculate_tex_gradient(self, channels=None):
-		if not channels:
-			channels = self.channels
-		tmp_mesh = self.mesh.clone()
 		gradient_maps = []
-		for i in range(len(self.cameras)):
-			# Creating a zero_map with the same batch size
-			zero_maps = [
-				torch.zeros(self.target_size + (channels,), device=self.device, requires_grad=True)
-				for _ in range(len(self.mesh))
-			]
-			# zero_map = torch.zeros(self.target_size+(channels,), device=self.device, requires_grad=True)
+		for mesh in self.mesh:
+			if not channels:
+				channels = self.channels
+			tmp_mesh = mesh.clone()
+			gradient_map = []
+			for i in range(len(self.cameras)):
+				zero_map = torch.zeros(self.target_size+(channels,), device=self.device, requires_grad=True)
+				optimizer = torch.optim.SGD([zero_map], lr=1, momentum=0)
+				optimizer.zero_grad()
+				zero_tex = TexturesUV([zero_map], mesh.textures.faces_uvs_padded(), mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+				tmp_mesh.textures = zero_tex
+				images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights)
+				loss = torch.sum((1 - images_predicted)**2)
+				loss.backward()
+				optimizer.step()
 
-			optimizer = torch.optim.SGD(zero_maps, lr=1, momentum=0)
-			optimizer.zero_grad()
-			zero_tex = TexturesUV(zero_maps, self.mesh.textures.faces_uvs_padded(), self.mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
-			tmp_mesh.textures = zero_tex
-
-			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights)
-			loss = torch.sum((1 - images_predicted)**2)
-			loss.backward()
-			optimizer.step()
-
-			gradient_maps.append([zero_map.detach() for zero_map in zero_maps])
-
+				gradient_map.append(zero_map.detach())
+			gradient_maps.append(gradient_map)
 		self.gradient_maps = gradient_maps
 
 
@@ -473,75 +421,67 @@ class UVProjection():
 	# First get face ids from each view, then filter pixels on UV space to generate masks
 	@torch.no_grad()
 	def calculate_visible_triangle_mask(self, channels=None, image_size=(512,512)):
-		if not channels:
-			channels = self.channels
-
-		pix2face_list = []
-		for i in range(len(self.cameras)):
-			self.renderer.rasterizer.raster_settings.image_size=image_size
-			pix2face = self.renderer.rasterizer(self.mesh_d, cameras=self.cameras[i]).pix_to_face
-			self.renderer.rasterizer.raster_settings.image_size=self.render_size
-			pix2face_list.append(pix2face)
-
-		if not hasattr(self, "mesh_uv"):
-			self.construct_uv_mesh()
-
-		raster_settings = RasterizationSettings(
-			image_size=self.target_size, 
-			blur_radius=0, 
-			faces_per_pixel=1,
-			perspective_correct=False,
-			cull_backfaces=False,
-			max_faces_per_bin=30000,
-			)
-
-		R, T = look_at_view_transform(dist=2, elev=0, azim=0)
-		cameras = FoVOrthographicCameras(device=self.device, R=R, T=T)
-
-		rasterizer=MeshRasterizer(
-			cameras=cameras, 
-			raster_settings=raster_settings
-		)
-		uv_pix2face = rasterizer(self.mesh_uv).pix_to_face
-
 		visible_triangles = []
-		for i in range(len(pix2face_list)):
-			valid_faceid = torch.unique(pix2face_list[i])
-			valid_faceid = valid_faceid[1:] if valid_faceid[0]==-1 else valid_faceid
-			mask = torch.isin(uv_pix2face[0], valid_faceid, assume_unique=False)
-			# uv_pix2face[0][~mask] = -1
-			triangle_mask = torch.ones(self.target_size+(1,), device=self.device)
-			triangle_mask[~mask] = 0
-			
-			triangle_mask[:,1:][triangle_mask[:,:-1] > 0] = 1
-			triangle_mask[:,:-1][triangle_mask[:,1:] > 0] = 1
-			triangle_mask[1:,:][triangle_mask[:-1,:] > 0] = 1
-			triangle_mask[:-1,:][triangle_mask[1:,:] > 0] = 1
-			visible_triangles.append(triangle_mask)
+		for index in range(len(self.mesh)):
+			if not channels:
+				channels = self.channels
 
+			pix2face_list = []
+			for i in range(len(self.cameras)):
+				self.renderer.rasterizer.raster_settings.image_size=image_size
+				pix2face = self.renderer.rasterizer(self.mesh_d[index], cameras=self.cameras[i]).pix_to_face
+				self.renderer.rasterizer.raster_settings.image_size=self.render_size
+				pix2face_list.append(pix2face)
+
+			# TODO: Check if this is needed with given UV map)
+			if not hasattr(self, "mesh_uv"):
+				self.construct_uv_mesh()
+
+			raster_settings = RasterizationSettings(
+				image_size=self.target_size,
+				blur_radius=0,
+				faces_per_pixel=1,
+				perspective_correct=False,
+				cull_backfaces=False,
+				max_faces_per_bin=30000,
+				)
+
+			R, T = look_at_view_transform(dist=2, elev=0, azim=0)
+			cameras = FoVOrthographicCameras(device=self.device, R=R, T=T)
+
+			rasterizer=MeshRasterizer(
+				cameras=cameras,
+				raster_settings=raster_settings
+			)
+			uv_pix2face = rasterizer(self.mesh_uv[index]).pix_to_face
+
+			visible_triangle = []
+			for i in range(len(pix2face_list)):
+				valid_faceid = torch.unique(pix2face_list[i])
+				valid_faceid = valid_faceid[1:] if valid_faceid[0]==-1 else valid_faceid
+				mask = torch.isin(uv_pix2face[0], valid_faceid, assume_unique=False)
+				# uv_pix2face[0][~mask] = -1
+				triangle_mask = torch.ones(self.target_size+(1,), device=self.device)
+				triangle_mask[~mask] = 0
+
+				triangle_mask[:,1:][triangle_mask[:,:-1] > 0] = 1
+				triangle_mask[:,:-1][triangle_mask[:,1:] > 0] = 1
+				triangle_mask[1:,:][triangle_mask[:-1,:] > 0] = 1
+				triangle_mask[:-1,:][triangle_mask[1:,:] > 0] = 1
+				visible_triangle.append(triangle_mask)
+			visible_triangles.append(visible_triangle)
 		self.visible_triangles = visible_triangles
 
 
 
 	# Render the current mesh and texture from current cameras
 	def render_textured_views(self):
-		mesh_num = len(self.mesh.clone())
-		meshes = self.mesh.extend(len(self.cameras))
-		tmp_mesh_num = len(meshes)
-		# cameras_expanded = len(self.cameras)
-		if tmp_mesh_num != len(self.cameras):
-			# extend cameras number
-			cameras_expanded = FoVOrthographicCameras(
-				R=self.cameras.R.repeat(mesh_num, 1, 1),
-				T=self.cameras.T.repeat(mesh_num, 1),
-				znear=self.cameras.znear.repeat(mesh_num),
-				zfar=self.cameras.zfar.repeat(mesh_num),
-				device=self.device,
-			)
-
-		images_predicted = self.renderer(meshes, cameras=cameras_expanded, lights=self.lights)
-
-		return [image.permute(2, 0, 1) for image in images_predicted]
+		noise_views = []
+		for mesh in self.mesh:
+			meshes = mesh.extend(len(self.cameras))
+			images_predicted = self.renderer(meshes, cameras=self.cameras, lights=self.lights)
+			noise_views.extend([image.permute(2, 0, 1) for image in images_predicted])
+		return noise_views
 
 
 	# Bake views into a texture
@@ -552,66 +492,54 @@ class UVProjection():
 			exp=1
 		if not channels:
 			channels = self.channels
+
+		num_meshes = len(self.mesh)
+		views_per_mesh = len(views) // num_meshes
 		views = [view.permute(1, 2, 0) for view in views]
-		tmp_mesh = self.mesh
-		tmp_mesh_num = len(tmp_mesh)
-		# bake_maps = [[torch.zeros( self.target_size + (views[0].shape[2],), device=self.device,
-		# 			requires_grad=True) for _ in range(tmp_mesh_num)] for _ in range(len(self.cameras))]
-		bake_maps = [torch.zeros(self.target_size + (views[0].shape[2],), device=self.device, requires_grad=True) for
-					 view in views]
-		optimizer = torch.optim.SGD(bake_maps, lr=1, momentum=0)
-		# cameras_expanded = len(self.cameras)
-		if tmp_mesh_num != len(self.cameras):
-			# extend cameras number
-			cameras_expanded = FoVOrthographicCameras(
-				R=self.cameras.R.repeat(tmp_mesh_num, 1, 1),
-				T=self.cameras.T.repeat(tmp_mesh_num, 1),
-				znear=self.cameras.znear.repeat(tmp_mesh_num),
-				zfar=self.cameras.zfar.repeat(tmp_mesh_num),
-				device=self.device,
-			)
+		grouped_views = [views[i * views_per_mesh:(i + 1) * views_per_mesh] for i in range(num_meshes)]
 
-		optimizer.zero_grad()
-		loss = 0
-		for i in range(len(self.cameras)):
-			bake_tex = TexturesUV([bake_maps[i]]*len(self.mesh), tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
-			tmp_mesh.textures = bake_tex
-			images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights, device=self.device)
-			predicted_rgb = images_predicted[..., :-1]
-			loss += (((predicted_rgb[...] - views[i]))**2).sum()
-		loss.backward(retain_graph=False)
-		optimizer.step()
-
-		total_weights = 0
+		# views = [view.permute(1, 2, 0) for view in views]
+		learned_views_list = []
 		baked_list = []
-		# TODO: Here the batch might also be need.
-		# TODO: I check the gradient here, however it is zero, I am not sure waht happen?
-		grouped_baked = [torch.zeros_like(bake_maps[0]) for _ in range(len(self.mesh))]
-		grouped_weights = [torch.zeros_like(self.gradient_maps[0][0]) for _ in range(len(self.mesh))]
+		total_weights_list = []
+		for mesh_idx, (tmp_mesh, views) in enumerate(zip(self.mesh, grouped_views)):
+			bake_maps = [torch.zeros(self.target_size+(views[0].shape[2],), device=self.device, requires_grad=True) for view in views]
+			optimizer = torch.optim.SGD(bake_maps, lr=1, momentum=0)
+			optimizer.zero_grad()
+			loss = 0
+			for i in range(len(self.cameras)):
+				bake_tex = TexturesUV([bake_maps[i]], tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+				tmp_mesh.textures = bake_tex
+				images_predicted = self.renderer(tmp_mesh, cameras=self.cameras[i], lights=self.lights, device=self.device)
+				predicted_rgb = images_predicted[..., :-1]
+				loss += (((predicted_rgb[...] - views[i]))**2).sum()
+			loss.backward(retain_graph=False)
+			optimizer.step()
 
-		for i in range(len(bake_maps)):
-			normalized_baked_map = bake_maps[i].detach() / (self.gradient_maps[i%12][i//12] + 1E-8)
-			bake_map = voronoi_solve(normalized_baked_map, self.gradient_maps[i%12][i//12][...,0])
-			weight = self.visible_triangles[i%12] * (self.cos_maps[i%12][i//12]) ** exp
-			if noisy:
-				noise = torch.rand(weight.shape[:-1]+(1,), generator=generator).type(weight.dtype).to(weight.device)
-				weight *= noise
-			group_idx = i // 12  # Calculate the index of the current grouping (0, 1 or 2)
-			grouped_weights[group_idx] += weight
-			grouped_baked[group_idx] += bake_map * weight
+			total_weights = 0
+			baked = 0
+			for i in range(len(bake_maps)):
+				normalized_baked_map = bake_maps[i].detach() / (self.gradient_maps[mesh_idx][i] + 1E-8)
+				bake_map = voronoi_solve(normalized_baked_map, self.gradient_maps[mesh_idx][i][...,0])
+				weight = self.visible_triangles[mesh_idx][i] * (self.cos_maps[mesh_idx][i]) ** exp
+				if noisy:
+					noise = torch.rand(weight.shape[:-1]+(1,), generator=generator).type(weight.dtype).to(weight.device)
+					weight *= noise
+				total_weights += weight
+				baked += bake_map * weight
+			baked /= total_weights + 1E-8
+			baked = voronoi_solve(baked, total_weights[...,0])
 
-		for group_idx in range(len(tmp_mesh)):
-			grouped_baked[group_idx] /= (grouped_weights[group_idx] + 1E-8)
+			bake_tex = TexturesUV([baked], tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
+			tmp_mesh.textures = bake_tex
+			extended_mesh = tmp_mesh.extend(len(self.cameras))
+			images_predicted = self.renderer(extended_mesh, cameras=self.cameras, lights=self.lights)
+			learned_views = [image.permute(2, 0, 1) for image in images_predicted]
+			baked_list.append(baked.permute(2, 0, 1))
+			learned_views_list.append(learned_views)
+			total_weights_list.append(total_weights.permute(2, 0, 1))
 
-		bake_tex = TexturesUV(grouped_baked, tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
-		tmp_mesh.textures = bake_tex
-		extended_mesh = tmp_mesh.extend(len(self.cameras))
-		images_predicted = self.renderer(extended_mesh, cameras=cameras_expanded, lights=self.lights)
-		grouped_baked = [baked.permute(2, 0, 1) for baked in grouped_baked]
-		learned_views = [image.permute(2, 0, 1) for image in images_predicted]
-		grouped_weights = [weight.permute(2, 0, 1) for weight in grouped_weights]
-
-		return learned_views, grouped_baked, grouped_weights
+		return learned_views_list,  baked_list, total_weights_list
 
 
 	# Move the internel data to a specific device
@@ -619,11 +547,11 @@ class UVProjection():
 		for mesh_name in ["mesh", "mesh_d", "mesh_uv"]:
 			if hasattr(self, mesh_name):
 				mesh = getattr(self, mesh_name)
-				setattr(self, mesh_name, mesh.to(device))
+				setattr(self, mesh_name, [mesh.to(device) for mesh in mesh])
 		for list_name in ["visible_triangles", "visibility_maps", "cos_maps"]:
 			if hasattr(self, list_name):
 				map_list = getattr(self, list_name)
-				if list_name == "cos_maps":
+				if list_name == "cos_maps" or list_name == "visible_triangles":
 					for i, inner_list in enumerate(map_list):
 						for j, m in enumerate(inner_list):
 							map_list[i][j] = m.to(device)
