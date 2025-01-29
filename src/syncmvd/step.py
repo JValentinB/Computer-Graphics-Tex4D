@@ -18,7 +18,6 @@ def step_tex(
 		sample: torch.FloatTensor,
 		texture: None,
 		reference_uv: torch.FloatTensor,
-		reference_mask: torch.Tensor,
 		generator=None,
 		return_dict: bool = True,
 		guidance_scale = 1,
@@ -97,7 +96,7 @@ def step_tex(
 
 	# 5.1 Tex4D previous texture calculation
 	#prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
-	prev_tex = previous_texture_tex4d(texture, original_tex, reference_uv, reference_mask, alpha_prod_t, beta_prod_t, alpha_prod_t_prev, beta_prod_t_prev)
+	prev_tex , reference_uv = previous_texture_tex4d(texture, original_tex, reference_uv, alpha_prod_t, beta_prod_t, alpha_prod_t_prev, beta_prod_t_prev)
 
 	# 6. Add noise
 	variance = 0
@@ -131,25 +130,23 @@ def step_tex(
 		pred_prev_sample[i] = view[:-1]
 	masks = [view[-1:] for view in prev_views]
 
-	return {"prev_sample": pred_prev_sample, "pred_original_sample":pred_original_sample, "prev_tex": prev_tex ,"reference_uv": reference_uv,  "reference_mask": reference_mask}
+	return {"prev_sample": pred_prev_sample, "pred_original_sample":pred_original_sample, "prev_tex": prev_tex ,"reference_uv": reference_uv}
 
 	if not return_dict:
-		return pred_prev_sample, pred_original_sample, prev_tex, reference_uv, reference_mask
+		return pred_prev_sample, pred_original_sample, prev_tex, reference_uv
 	pass
 
 @torch.no_grad()
-def previous_texture_tex4d(current_tex, original_tex, reference_uv, reference_mask, alpha_t, beta_t, alpha_t_prev, beta_t_prev, blending_weight = 0.2):
+def previous_texture_tex4d(current_tex, original_tex, reference_uv, alpha_t, beta_t, alpha_t_prev, beta_t_prev, blending_weight = 0.2):
 	# Eq. (6) in Tex4D
-	factor = (alpha_t / beta_t) ** (0.5) * (alpha_t **(0.5) * current_tex - previous_tex) + beta_t ** (0.5) * current_tex
+	factor = (alpha_t / beta_t) ** (0.5) * (alpha_t **(0.5) * current_tex - original_tex) + beta_t ** (0.5) * current_tex
 	previous_tex = alpha_t_prev ** (0.5) * original_tex + beta_t_prev ** (0.5) * factor
 
 	# Update reference uv and mask
-	empty_texels = reference_uv.sum(dim=-1) == 0
-	reference_uv[empty_texels] = original_tex[empty_texels]
-	reference_mask[empty_texels] == 0
+	reference_mask = (previous_tex == 0).all(dim=1, keepdim=True).float()
 
 	# Eq. (8) in Tex4D: Reference UV blending
 	new_tex = (1- blending_weight) * previous_tex + blending_weight * reference_uv
 	previous_tex = new_tex * reference_mask + reference_uv * (1- reference_mask)
 
-	return previous_tex, reference_uv, reference_mask
+	return previous_tex, reference_uv

@@ -516,9 +516,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		dbres_sizes_list = []
 		mbres_size_list = []
 
-		# 9. Tex4D: Reference UV Texture and mask
+		# 9. Tex4D: Reference UV Texture
 		reference_uv = torch.zeros_like(latent_tex)
-		reference_mask = torch.ones(reference_uv.shape[:2], dtype=torch.uint8)
 
 
 		with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -692,7 +691,6 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						sample=latents, 
 						texture=latent_tex,
 						reference_uv=reference_uv,
-						reference_mask=reference_mask,
 						return_dict=True, 
 						main_views=[], 
 						exp= current_exp,
@@ -703,7 +701,6 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 					latents = step_results["prev_sample"]
 					latent_tex = step_results["prev_tex"]
 					reference_uv = step_results["reference_uv"]
-					reference_mask = step_results["reference_mask"]
 
 					# Composit latent foreground with random color background
 					background_latents = [self.color_latents[color] for color in background_colors]
