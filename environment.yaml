@@ -1,0 +1,28 @@
+name: tex4d
+channels:
+  - iopath
+  - fvcore
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - cuda-version=11.7
+  - cupy=12.3.0
+  - fvcore
+  - pip
+  - pip:
+      - torch==2.0.1
+      - torchvision
+      - huggingface-hub==0.21.0
+      - diffusers==0.19.0
+      - transformers==4.36.0
+      - xformers==0.0.20
+      - xatlas
+      - accelerate
+      - configargparse
+      - ipython
+      - flask-socketio
+      - --no-index
+      - --no-cache-dir
+      - pytorch3d
+      - -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py38_cu117_pyt201/download.html
