@@ -3,6 +3,7 @@
 /assets/*.py
 /assets/*.mp4
 /data/MVD*/
+/data/taunt/MVD*/
 test.py
 .idea/
 SyncMVD.zip
