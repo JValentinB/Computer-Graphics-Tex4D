@@ -14,58 +14,69 @@ except:
     import sys
     modules_path = bpy.utils.user_resource("SCRIPTS", path="modules")
     sys.path.append(modules_path)
-    pip.main(['install', 'python-socketio', '--target', modules_path])
-    
-    try: 
-        import socketio
-    except:
-        print("Failed to install socketio")
+    pip.main(['install', 'python-socketio', 'websocket-client', '--target', modules_path])
+        
+    import socketio
 
 
 
-SERVER_URL = "http://localhost:5000" 
+SERVER_URL = "http://localhost:7341" 
 sio = socketio.Client()
 
 def send_single_mesh(mesh_path, prompt, inference_steps, keyframe=0):
-    """Send a single mesh file to the server via socket."""
+    """Send a single mesh file to the server."""
     with open(mesh_path, 'rb') as mesh_file:
-        files = {'mesh': (os.path.basename(mesh_path), mesh_file)}
-        data = {
-            'prompt': prompt,
-            'inference_steps': inference_steps,
-            'keyframe': keyframe
+        files = {
+            'mesh': ('mesh.obj', mesh_file, 'application/octet-stream'),
         }
-        sio.emit('process', data=data, file=files)
-        print(f"Mesh sent: {mesh_path}")
+
+        # Send the request
+        data = {'prompt': prompt, 'inference_steps': inference_steps}
+        try:
+            response = requests.post(SERVER_URL + "/process", files=files, data=data)
+            response.raise_for_status()
+
+            response_data = response.json()
+
+            # Save the texture returned from the server
+            output_texture_path = os.path.join(os.path.dirname(mesh_path), f'texture_{keyframe:05d}.png')
+            with open(output_texture_path, 'wb') as f:
+                f.write(base64.b64decode(response_data['texture']))
+            print(f"Texture saved at: {output_texture_path}")
+
+            import_mesh_from_data(response_data['mesh'])
+
+        except requests.exceptions.RequestException as e:
+            print("Error communicating with server:", e)
+
+
+        # Close file handles
+        for file in files.values():
+            file[1].close()
 
 def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps):
     scene = context.scene
 
     def handle_progress_update(data):
-        print(f"Received progress update: {data['progress']}")
-        scene.model_progress = data['progress']
-        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        # scene = bpy.context.scene  # Ensure you get the correct scene
+        progress = data.get('progress', 0)  
+        scene.model_progress = progress
 
-    # Define handler for receiving the result (processed texture)
-    def handle_result(data):
-        print(f"Processing complete: {data}")
-        texture_data = data.get('texture', None)
-        if texture_data:
-            # Save the texture as a PNG file
-            output_texture_path = os.path.join(os.path.dirname(mesh_path), f'texture_{data["keyframe"]:05d}.png')
-            with open(output_texture_path, 'wb') as f:
-                f.write(base64.b64decode(texture_data))
-            print(f"Texture saved at: {output_texture_path}")
+        # Use bpy.app.timers to schedule a redraw on the main thread
+        def redraw_ui():
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            return None  # Returning None stops the timer
+        
+        if progress >= 1.0:
+            sio.disconnect()
+            scene.model_progress = 0.0
             
-            # Optionally, import the mesh from the processed result (if needed)
-            import_mesh_from_data(data['mesh'])
-
+        bpy.app.timers.register(redraw_ui, first_interval=0.01)
     sio.on('progress_update', handle_progress_update)
-    sio.on('result', handle_result)  # Handle the final result (texture and mesh)
 
     print("Connecting to server...")
     sio.connect(SERVER_URL, wait_timeout=120)
-    print("Connected to server")
+    
     
     """Send the mesh files to the server."""
     def task():
@@ -89,7 +100,42 @@ def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps):
                 send_single_mesh(mesh_path, prompt, inference_steps)
         except Exception as e:
             print("Error processing data:", e)
-        finally:
-            sio.disconnect()
 
-    task()
+    thread = threading.Thread(target=task)
+    thread.start()
+    
+# handle the result
+# @sio.on('result')
+# def handle_result(data):
+#     print(f"Processing complete: {data}")
+#     texture_data = data.get('texture', None)
+#     if texture_data:
+#         # Save the texture as a PNG file
+#         output_texture_path = f'texture_{data["keyframe"]:05d}.png'
+#         with open(output_texture_path, 'wb') as f:
+#             f.write(base64.b64decode(texture_data))
+#         print(f"Texture saved at: {output_texture_path}")
+        
+#         # Optionally, import the mesh from the processed result (if needed)
+#         import_mesh_from_data(data['mesh'])
+    
+#     print("Disconnecting from server...")
+#     sio.disconnect()
+    
+
+@sio.on('connect')
+def handle_connect():
+    print("Connected to server")
+    print("Connection transport:", sio.transport)
+    
+@sio.on('disconnect')
+def handle_disconnect():
+    print("Disconnected from server")
+
+@sio.on('connect_error')
+def handle_connect_error(error):
+    print("Connection error:", error)
+
+@sio.on('error')
+def handle_socket_error(error):
+    print("Socket error:", error)

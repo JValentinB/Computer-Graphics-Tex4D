@@ -20,7 +20,7 @@ from diffusers.utils import (
 	randn_tensor, 
 	numpy_to_pil,
 	pt_to_pil,
-	make_image_grid,
+	# make_image_grid,
 	is_accelerate_available,
 	is_accelerate_version,
 	is_compiled_module,
@@ -525,7 +525,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			for i, t in enumerate(timesteps):
 
 				if progress_callback:
-					progress_percentage = (progress_bar.n / progress_bar.total) * 100
+					progress_percentage = (progress_bar.n / progress_bar.total)
 					progress_callback(progress_percentage) 
      
 				# mix prompt embeds  according to azim angle

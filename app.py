@@ -1,5 +1,6 @@
 import os 
 import torch 
+import time
 
 from flask import Flask, request, jsonify, send_file
 from flask_socketio import SocketIO, emit
@@ -54,25 +55,21 @@ def handle_connect_error(error):
 
 # @socketio.on('process')
 @app.route('/process', methods=['POST'])
-def process(data, file):
-    
+def process():
     print("Received a mesh!\n")
-    if 'mesh' not in file:
-        emit('error', {'error': 'Mesh file missing'})
-        return
+    if 'mesh' not in request.files:
+        return jsonify({'error': 'Mesh file missing'}), 400
    
-    mesh_file = file['mesh']
-    prompt = data.get('prompt', '')
-    steps = int(data.get('inference_steps', 10))
+    mesh_file = request.files['mesh']
+    prompt = request.form.get('prompt', '') 
+    steps = int(request.form.get('inference_steps', 10))
     print(f"Prompt: {prompt}\nSteps: {steps}")
     
     if not prompt or prompt == '':
-        emit('error', {'error': 'Prompt missing'})
-        return
-
+        return jsonify({'error': 'Prompt missing'}), 400
+   
     if not mesh_file:
-        emit('error', {'error': 'Mesh file missing'})
-        return
+        return jsonify({'error': 'Missing mesh file'}), 400
     
     # Save uploaded file
     filename = secure_filename(mesh_file.filename)
@@ -84,15 +81,22 @@ def process(data, file):
     
     def send_progress_update(progress):
         print(f"___Sending progress: {progress}%")
-        emit('progress_update', {'progress': progress})
+        socketio.emit('progress_update', {'progress': progress})
 
     # Process the mesh using preloaded models and user-provided prompt
     try:
         print("Starting SyncMVD...")
         result = process_mesh_with_preloaded_models(pipe, upload_path, output_path, prompt, steps, send_progress_update)
-        emit('result', result)  # Emit the result back to the client
+        return jsonify(result)
+        
+        # Simulate progress update
+        # for i in range(101):
+        #     time.sleep(0.1)
+        #     send_progress_update(i / 100)
+            
+        # return jsonify({'result': 'success'})
     except Exception as e:
-        emit('error', {'error': str(e)})
+        return jsonify({'error': str(e)}), 500
     
     # # Return the textured mesh
     # return send_file(output_path, as_attachment=True)
@@ -100,4 +104,4 @@ def process(data, file):
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=7341)

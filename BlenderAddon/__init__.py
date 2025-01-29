@@ -29,7 +29,7 @@ class ExportPanel(bpy.types.Panel):
         layout.prop(scene, "camera_distance")
         
         if (scene.depth_progress > 0.0):
-            layout.progress(text=f"Depth Images Progress:{(scene.depth_progress*100):.0f}%", factor=scene.depth_progress, type='BAR')
+            layout.progress(text=f"Depth Images Progress: {(scene.depth_progress*100):.0f}%", factor=scene.depth_progress, type='BAR')
         
         layout.separator()
         layout.prop(scene, "inference_steps")
@@ -40,9 +40,10 @@ class ExportPanel(bpy.types.Panel):
         layout.prop(scene, "output_directory")
         
         if (scene.model_progress > 0.0):
-            layout.progress(text=f"Model Progress:{(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
-        
-        layout.operator("object.export_data", text="Generate")
+            layout.progress(text=f"Model Progress: {(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
+            layout.operator("object.cancel", text="Cancel", icon='CANCEL')
+        else: 
+            layout.operator("object.export_data", text="Generate")
 
 class ExportOperator(bpy.types.Operator):
     bl_idname = "object.export_data"
@@ -104,10 +105,20 @@ class ExportOperator(bpy.types.Operator):
             
         return {'FINISHED'}
     
+class CancelOperator(bpy.types.Operator):
+    bl_idname = "object.cancel"
+    bl_label = "Cancel"
+    
+    def execute(self, context):
+        scene = context.scene
+        scene.model_progress = 0.0
+        return {'FINISHED'}
+    
     
 def register():
     bpy.utils.register_class(ExportPanel)
     bpy.utils.register_class(ExportOperator)
+    bpy.utils.register_class(CancelOperator)
     
     # Add a property for the prompt and output directory
     bpy.types.Scene.prompt = bpy.props.StringProperty(name="Prompt", default="")
@@ -170,6 +181,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(ExportPanel)
     bpy.utils.unregister_class(ExportOperator)
+    bpy.utils.unregister_class(CancelOperator)
     
     bpy.utils.unregister_class(AnimateTextureNode)
     bpy.utils.unregister_class(NODE_OT_AddImageInput)
