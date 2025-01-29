@@ -95,8 +95,8 @@ def step_tex(
 		texture = torch.stack(texture, dim=0)
 
 	# 5.1 Tex4D previous texture calculation
-	#prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
-	prev_tex , reference_uv = previous_texture_tex4d(texture, original_tex, reference_uv, alpha_prod_t, beta_prod_t, alpha_prod_t_prev, beta_prod_t_prev)
+	prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
+	#prev_tex , reference_uv = previous_texture_tex4d(texture, original_tex, reference_uv, alpha_prod_t, beta_prod_t, alpha_prod_t_prev, beta_prod_t_prev)
 
 	# 6. Add noise
 	variance = 0
@@ -143,7 +143,8 @@ def previous_texture_tex4d(current_tex, original_tex, reference_uv, alpha_t, bet
 	previous_tex = alpha_t_prev ** (0.5) * original_tex + beta_t_prev ** (0.5) * factor
 
 	# Update reference uv and mask
-	reference_mask = (previous_tex == 0).all(dim=1, keepdim=True).float()
+	reference_mask = (reference_uv == 0).all(dim=1, keepdim=True).float()
+	reference_uv =  reference_uv * (1 - reference_mask) + original_tex * reference_mask
 
 	# Eq. (8) in Tex4D: Reference UV blending
 	new_tex = (1- blending_weight) * previous_tex + blending_weight * reference_uv
