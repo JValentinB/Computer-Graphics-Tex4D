@@ -103,8 +103,10 @@ def step_tex(
 		# 如果是 tuple 或 list，使用 torch.stack 合并为一个 tensor
 		texture = torch.stack(texture, dim=0)
 
-	# 5.1 Tex4D previous texture calculation
-	prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
+	# 5.1 Tex4D previous texture calculation: Eq (5)
+	factor = (alpha_prod_t / beta_prod_t) ** (0.5) * ( alpha_prod_t ** (0.5) * texture - original_tex) + beta_prod_t ** (0.5) * texture
+	prev_tex = alpha_prod_t_prev ** (0.5) * original_tex + beta_prod_t_prev ** (0.5) * factor
+	#prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
 
 	# reference_uv = torch.zeros_like(prev_tex)
 	# The reference map is regenerated at every step by sequentially combining the texture of every key frame
@@ -145,6 +147,7 @@ def step_tex(
 
 	for i in range(len(prev_tex)):
 		mask = (visibility_weights[i] > 0)
+		# Eq (8) in Tex4D
 		prev_tex[i] = ((1 - blending_weight) * prev_tex[i] + blending_weight * reference_uv) * mask + reference_uv * ~mask
 
 	uvp.set_texture_map(prev_tex)

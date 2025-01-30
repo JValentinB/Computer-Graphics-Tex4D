@@ -4,7 +4,7 @@ from IPython.display import display
 from datetime import datetime
 import torch
 from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
-from diffusers import DDPMScheduler, UniPCMultistepScheduler
+from diffusers import DDPMScheduler, DDIMScheduler, UniPCMultistepScheduler
 from src.pipeline import StableSyncMVDPipeline
 from src.configs import *
 from shutil import copy
@@ -63,8 +63,9 @@ pipe = StableDiffusionControlNetPipeline.from_pretrained(
 	"runwayml/stable-diffusion-v1-5", controlnet=controlnet, torch_dtype=torch.float16
 )
 
-
 pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
+#pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config, prediction_type="v_prediction")
+#pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config, prediction_type="v_prediction")
 components = pipe.components  # Get the components dictionary
 #components.pop("image_encoder", None)
 syncmvd = StableSyncMVDPipeline(**components)
