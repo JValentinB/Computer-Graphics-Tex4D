@@ -517,7 +517,9 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		mbres_size_list = []
 
 		# 9. Tex4D: Reference UV Texture
-		reference_uv = torch.zeros_like(latent_tex)
+		# The reference map is regenerated at every step by sequentially combining the texture of every key frame
+		# Therefore, there is no need to define it and store it outside the diffusion step. (Nach meiner Meinung)
+		# reference_uv = torch.zeros_like(latent_tex)
 
 
 		with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -567,7 +569,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						down_block_res_samples_list = []
 						mid_block_res_sample_list = []
 
-						control_model_input = control_model_input.reshape(2,-1,4,control_model_input.shape[2],
+						control_model_input = control_model_input.reshape(self.key_frames_num,-1,4,control_model_input.shape[2],
 																		  control_model_input.shape[3])
 						control_model_input = torch.unbind(control_model_input, dim=0)
 						model_input_batches = []
@@ -631,7 +633,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 					noise_pred_list = []
 					model_input_batches = []
 					prompt_embeds_batches = []
-					latent_model_input_tmp = latent_model_input.reshape(2, -1, 4, latent_model_input.shape[2],
+					latent_model_input_tmp = latent_model_input.reshape(self.key_frames_num, -1, 4, latent_model_input.shape[2],
 																	  latent_model_input.shape[3])
 					latent_model_input_tmp = torch.unbind(latent_model_input_tmp, dim=0)
 					for input_tmp in latent_model_input_tmp:
@@ -690,7 +692,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						timestep=t, 
 						sample=latents, 
 						texture=latent_tex,
-						reference_uv=reference_uv,
+						# reference_uv=reference_uv,
 						return_dict=True, 
 						main_views=[], 
 						exp= current_exp,
@@ -770,6 +772,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 							for index, tex in enumerate(latent_tex):
 								texture_color = latent_preview(tex[None, ...])
 								numpy_to_pil(texture_color)[0].save(f"{self.intermediate_dir}/texture_{i:02d}_key_frames_{index:02d}.jpg")
+							texture_color = latent_preview(reference_uv[None, ...])
+							numpy_to_pil(texture_color)[0].save(f"{self.intermediate_dir}/reference_texture_{i:02d}.jpg")
 						else:
 							self.uvp_rgb.to(self._execution_device)
 							result_tex_rgb, result_tex_rgb_output = get_rgb_texture(self.vae, self.uvp_rgb, pred_original_sample)
