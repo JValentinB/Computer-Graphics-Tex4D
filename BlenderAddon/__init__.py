@@ -30,7 +30,8 @@ class Tex4DPanel(bpy.types.Panel):
         layout.separator()
         
         layout.prop(scene, "view_count")
-        layout.prop(scene, "radius")
+        layout.prop(scene, "distance")
+        layout.prop(scene, "scale")
         layout.prop(scene, "coverage")
         layout.separator()
         
@@ -38,7 +39,8 @@ class Tex4DPanel(bpy.types.Panel):
         layout.prop(scene, "output_directory")
         if (scene.depth_progress > 0.0):
             layout.progress(text=f"Depth Images Progress: {(scene.depth_progress*100):.0f}%", factor=scene.depth_progress, type='BAR')
-        layout.operator("object.export_data", text="Generate Input Data")
+        else:
+            layout.operator("object.export_data", text="Generate Input Data")
         
         layout.separator()
         layout.separator()
@@ -60,6 +62,7 @@ class ExportOperator(bpy.types.Operator):
     bl_description = "Generate and export depth images and view matrices for Tex4D."
     
     def execute(self, context):
+        print("Exporting data...")
         scene = context.scene
         
         # Get output directory from the scene settings
@@ -80,7 +83,8 @@ class ExportOperator(bpy.types.Operator):
         
         export_weights(self, context, output_directory)
         export_uv_maps(self, context, output_directory)
-        export_depth_images(self, context, output_directory)            
+        export_depth_images(self, context, output_directory)
+        scene.is_output_generated = True        
         return {'FINISHED'}
     
 class Tex4DStartOperator(bpy.types.Operator):
@@ -89,8 +93,13 @@ class Tex4DStartOperator(bpy.types.Operator):
     bl_description = "Send all data and prompt to the server."
     
     def execute(self, context):
+        print("Sending data and prompt...")
         scene = context.scene
         scene.model_progress = 0.0
+        
+        if not scene.is_output_generated:
+            self.report({'ERROR'}, "Output data not generated. Please generate output data first.")
+            return {'CANCELLED'}
         
         obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
         if obj is None or obj.type != 'MESH':
@@ -153,9 +162,15 @@ def register():
         min=2, max=100, 
         update=update_handler
     )
-    bpy.types.Scene.radius = bpy.props.FloatProperty(
-        name="Camera Radius",
+    bpy.types.Scene.distance = bpy.props.FloatProperty(
+        name="Camera Distance",
         default=10.0,
+        min=0.0,
+        update=update_handler
+    )
+    bpy.types.Scene.scale = bpy.props.FloatProperty(
+        name="Camera Scale",
+        default=1.0,
         min=0.0,
         update=update_handler
     )
@@ -173,7 +188,7 @@ def register():
         min=1
     )
     bpy.types.Scene.output_directory = bpy.props.StringProperty(name="Output Directory", default="", subtype='DIR_PATH')
-    
+    bpy.types.Scene.is_output_generated = bpy.props.BoolProperty(name="Is Output Generated", default=False)
     
     # Add a property for the prompt and output directory
     bpy.types.Scene.prompt = bpy.props.StringProperty(name="Prompt", default="")
@@ -228,7 +243,9 @@ def unregister():
     
     # Remove the properties
     del bpy.types.Scene.view_count
-    del bpy.types.Scene.radius
+    del bpy.types.Scene.distance
+    del bpy.types.Scene.scale
+    del bpy.types.Scene.coverage
     
     del bpy.types.Scene.prompt
     del bpy.types.Scene.output_directory

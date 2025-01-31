@@ -7,7 +7,14 @@ import traceback
 from PIL import Image
 from io import BytesIO
 
-def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inference_steps=10, progress_callback=None):
+def process_mesh_with_preloaded_models(
+        pipe, 
+        mesh_path, 
+        output_path: str, 
+        prompt: str = "", 
+        inference_steps: int = 10,
+        progress_callback=None
+    ):
     try:
         # Initialize StableSyncMVDPipeline with preloaded components
         syncmvd = StableSyncMVDPipeline(**pipe.components)

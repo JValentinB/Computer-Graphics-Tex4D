@@ -233,6 +233,12 @@ class UVProjection():
 		azim = torch.FloatTensor([pose[1] for pose in camera_poses])
 		R, T = look_at_view_transform(dist=camera_distance, elev=elev, azim=azim, at=centers or ((0,0,0),))
 		self.cameras = FoVOrthographicCameras(device=self.device, R=R, T=T, scale_xyz=scale or ((1,1,1),))
+  
+	def set_cameras_alternative(self, camera_matrices, scale=None):
+		R = torch.stack([torch.tensor(mat[:3, :3]) for mat in camera_matrices], dim=0)  # Extract 3x3 rotation
+		T = torch.stack([torch.tensor(mat[:3, 3]) for mat in camera_matrices], dim=0)  # Extract translation vector
+
+		self.cameras = FoVOrthographicCameras(device=self.device, R=R, T=T, scale_xyz=scale or ((1,1,1),))
 
 
 	# Set all necessary internal data for rendering and texture baking

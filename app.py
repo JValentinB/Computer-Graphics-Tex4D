@@ -131,11 +131,7 @@ def process_animated():
             view = int(key.split("_")[1])  # Extract view number
             views[view] = np.load(file)  # Load .npy file directly into an array
 
-    print(f"Prompt: {prompt}")
-    print(f"Inference Steps: {inference_steps}")
-    print(f"Meshes: {list(meshes.keys())}")
-    print(f"Depths: {list(depths.keys())}")
-    print(f"Views: {list(views.keys())}")
+    print(f"View matrices: {views}\n")
 
     return jsonify({
         "result": "success",

@@ -135,7 +135,10 @@ def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps):
         bpy.app.timers.register(redraw_ui, first_interval=0.01)
     sio.on('progress_update', handle_progress_update)
 
+    
     print("Connecting to server...")
+    if sio.connected:
+        sio.disconnect()
     sio.connect(SERVER_URL, wait_timeout=120)
     
     
