@@ -27,6 +27,7 @@ class Tex4DPanel(bpy.types.Panel):
         
         layout.prop(scene, "selected_object", text="Object")
         layout.separator()
+        layout.separator()
         
         layout.prop(scene, "view_count")
         layout.prop(scene, "radius")
@@ -35,14 +36,14 @@ class Tex4DPanel(bpy.types.Panel):
         
         layout.prop(scene, "num_keyframes")
         layout.prop(scene, "output_directory")
-        layout.operator("object.export_data", text="Generate Input Data")
-        
         if (scene.depth_progress > 0.0):
             layout.progress(text=f"Depth Images Progress: {(scene.depth_progress*100):.0f}%", factor=scene.depth_progress, type='BAR')
+        layout.operator("object.export_data", text="Generate Input Data")
         
         layout.separator()
-        layout.prop(scene, "inference_steps")
+        layout.separator()
         layout.prop(scene, "image_sequence")
+        layout.prop(scene, "inference_steps")
         layout.prop(scene, "prompt")
         layout.separator()
         
@@ -56,6 +57,7 @@ class Tex4DPanel(bpy.types.Panel):
 class ExportOperator(bpy.types.Operator):
     bl_idname = "object.export_data"
     bl_label = "Export Tex4D Input Data"
+    bl_description = "Generate and export depth images and view matrices for Tex4D."
     
     def execute(self, context):
         scene = context.scene
@@ -84,12 +86,13 @@ class ExportOperator(bpy.types.Operator):
 class Tex4DStartOperator(bpy.types.Operator):
     bl_idname = "object.tex4d_start"
     bl_label = "Generate"
+    bl_description = "Send all data and prompt to the server."
     
     def execute(self, context):
         scene = context.scene
         scene.model_progress = 0.0
         
-        obj = context.object
+        obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
         if obj is None or obj.type != 'MESH':
             self.report({'ERROR'}, "No mesh object selected.")
             return {'CANCELLED'}
@@ -102,12 +105,12 @@ class Tex4DStartOperator(bpy.types.Operator):
 
         if(scene.image_sequence):
             mesh_dir = scene.temp_dir
-            if(export_animated_mesh(obj, mesh_dir)):
-                print(f"Mesh exported to {mesh_dir}")
-            
-                steps = scene.inference_steps
-                # Send the mesh and text prompt to the server
-                send_meshes_and_prompt(context, mesh_dir, prompt, steps)
+            export_animated_mesh(obj, mesh_dir)
+            print(f"Mesh exported to {mesh_dir}")
+        
+            steps = scene.inference_steps
+            # Send the mesh and text prompt to the server
+            send_meshes_and_prompt(context, mesh_dir, prompt, steps)
 
         else: 
             mesh_path = os.path.join(scene.temp_dir, "mesh.obj")

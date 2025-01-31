@@ -39,7 +39,7 @@ def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inf
 
         # Process the mesh with the user-provided prompt
         print(f"Running SyncMVD with mesh: {mesh_path} and prompt: {prompt}")
-        result_tex_rgb, textured_views, v = syncmvd(
+        result_tex_rgb = syncmvd(  #result_tex_rgb, textured_views, v = syncmvd(
             prompt=prompt,  # Use the prompt provided by the client
             height=opt['latent_view_size'] * 8,
             width=opt['latent_view_size'] * 8,
