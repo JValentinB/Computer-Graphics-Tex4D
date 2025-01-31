@@ -100,7 +100,6 @@ def step_tex(
 	# pred_prev_sample = pred_original_sample_coeff * pred_original_sample + current_sample_coeff * sample
 	original_tex = torch.stack(original_tex, dim = 0)
 	if isinstance(texture, (tuple, list)):
-		# 如果是 tuple 或 list，使用 torch.stack 合并为一个 tensor
 		texture = torch.stack(texture, dim=0)
 
 	# 5.1 Tex4D previous texture calculation: Eq (5)
@@ -145,11 +144,6 @@ def step_tex(
 		tex = torch.masked_select(prev_tex[i], reference_mask_update_list[i].unsqueeze(0).expand(4, -1, -1))
 		reference_uv.masked_scatter_(reference_mask_update_list[i].unsqueeze(0).expand(4, -1, -1), tex)
 	reference_uv = voronoi_solve(reference_uv.permute(1, 2, 0), reference_mask).permute(2, 0, 1)
-
-
-	# for i in range(len(prev_tex)):
-	# 	reference_uv.masked_scatter_(reference_mask_update_list[i], prev_tex[i])
-
 
 	for i in range(len(prev_tex)):
 		mask = (visibility_weights[i] > 0)
