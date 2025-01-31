@@ -91,8 +91,8 @@ def step_tex(
 	original_views = [view for view in pred_original_sample]
 	original_views, original_tex, visibility_weights, reference_mask_update_list, reference_mask = uvp.bake_texture(views=original_views, main_views=main_views, exp=exp)
 	uvp.set_texture_map(original_tex)	
-	original_views = uvp.render_textured_views()																																			
-	original_views = torch.stack(original_views, axis=0)[:,:-1,...]
+	# original_views = uvp.render_textured_views()
+	# original_views = torch.stack(original_views, axis=0)[:,:-1,...]
 
 
 	# 5. Compute predicted previous sample µ_t
@@ -134,14 +134,20 @@ def step_tex(
 		else:
 			variance = (scheduler._get_variance(t, predicted_variance=variance_tex) ** 0.5) * variance_noise
 
-	prev_tex = prev_tex + variance
 	reference_uv = torch.zeros_like(prev_tex[0])
+
+	prev_tex = prev_tex + variance
 	prev_tex = list(torch.unbind(prev_tex, dim=0))
 
 	for i in range(len(prev_tex)):
-		reference_uv.masked_scatter_(reference_mask_update_list[i], prev_tex[i])
+		tex = torch.masked_select(prev_tex[i], reference_mask_update_list[i].unsqueeze(0).expand(4, -1, -1))
+		reference_uv.masked_scatter_(reference_mask_update_list[i].unsqueeze(0).expand(4, -1, -1), tex)
+	reference_uv = voronoi_solve(reference_uv.permute(1, 2, 0), reference_mask).permute(2, 0, 1)
 
-	reference_uv = voronoi_solve(reference_uv.permute(1,2,0), reference_mask).permute(2,0,1)
+
+	# for i in range(len(prev_tex)):
+	# 	reference_uv.masked_scatter_(reference_mask_update_list[i], prev_tex[i])
+
 
 	for i in range(len(prev_tex)):
 		mask = (visibility_weights[i] > 0)

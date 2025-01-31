@@ -504,6 +504,7 @@ class UVProjection():
 		total_weights_list = []
 		reference_mask_update_list = []
 		# reference_texture = torch.zeros(self.target_size+(views[0].shape[2],), dtype=torch.float32, device=self.device)
+		reference_mask = torch.zeros(self.target_size, dtype=torch.uint8, device=self.device)
 		for mesh_idx, (tmp_mesh, views) in enumerate(zip(self.mesh, grouped_views)):
 			bake_maps = [torch.zeros(self.target_size+(views[0].shape[2],), device=self.device, requires_grad=True) for view in views]
 			optimizer = torch.optim.SGD(bake_maps, lr=1, momentum=0)
@@ -520,7 +521,7 @@ class UVProjection():
 
 			total_weights = 0
 			baked = 0
-			reference_mask = torch.zeros(self.target_size, dtype=torch.uint8, device=self.device)
+
 			# I implement reference map here :D
 			for i in range(len(bake_maps)):
 				normalized_baked_map = bake_maps[i].detach() / (self.gradient_maps[mesh_idx][i] + 1E-8)
@@ -533,16 +534,16 @@ class UVProjection():
 				baked += bake_map * weight
 			baked /= total_weights + 1E-8
 			#
-			updated_mask = (total_weights[...,0] > 0)  # 取出最后一维
+			updated_mask = (total_weights[...,0] > 0)
 			mask_changed = (reference_mask == 0) & updated_mask
 			reference_mask_update_list.append(mask_changed)
 			reference_mask[mask_changed] = 1
 			# reference_texture[mask_changed] = baked[mask_changed]
-			extended_baked = voronoi_solve(baked, total_weights[...,0])
+			extended_baked = voronoi_solve(baked, total_weights[...,0]) #Here is a very small Voronoi, mainly focused on the occluded areas.
 			# reference_texture.masked_scatter_(mask_changed.unsqueeze(-1), extended_baked)
 			# TODO: combine 24 texture before voronoi_solve, then do a voronoi solve.
 
-
+			# save extended_baked as the format of pytorch3d
 			bake_tex = TexturesUV([extended_baked], tmp_mesh.textures.faces_uvs_padded(), tmp_mesh.textures.verts_uvs_padded(), sampling_mode=self.sampling_mode)
 			tmp_mesh.textures = bake_tex
 			extended_mesh = tmp_mesh.extend(len(self.cameras))
