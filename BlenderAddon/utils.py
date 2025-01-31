@@ -17,44 +17,55 @@ def log_message(message, level='INFO'):
 def get_keyframes(k):
     start_frame = bpy.context.scene.frame_start
     end_frame = bpy.context.scene.frame_end
-    return np.linspace(start_frame, end_frame, k, dtype=int)
-def random_camera_views(v, radius=10.0):
+    last_frame = end_frame - (end_frame - start_frame) / k  # Adjust last frame
+
+    return np.linspace(start_frame, last_frame, k, dtype=int)
+
+def random_camera_views(count, radius=10.0, coverage=1.0, center_location=Vector((0, 0, 0))):
+    """ Generate camera positions on a sphere with adjustable vertical coverage """
     views = []
     phi = (1 + np.sqrt(5)) / 2  # Golden ratio
-    for i in range(v):
-        z = 1 - (2 * i) / (v - 1)  # z-coordinate from top to bottom of the sphere
-        theta = 2 * np.pi * i / phi  # Angle around the sphere based on golden ratio
+
+    min_z = 1 - 2 * coverage  # Defines how low cameras can go (1 for full sphere, 0 for half, close to 1 for top)
+
+    for i in range(count):
+        z = 1 - (2 * i) / (count - 1)  # Normalized range from 1 (top) to -1 (bottom)
+        z = min_z + (1 - min_z) * (z + 1) / 2  # Adjusted to fit within coverage range
+
+        theta = 2 * np.pi * i / phi  # Spiral around the sphere
         x = np.sqrt(1 - z**2) * np.cos(theta)
         y = np.sqrt(1 - z**2) * np.sin(theta)
-        camera_loc = Vector((x * radius, y * radius, z * radius))
+        camera_loc = center_location + Vector((x * radius, y * radius, z * radius))  # Offset by center location
 
-        # Create a camera matrix to point to the origin (0, 0, 0)
-        look_at = Vector((0, 0, 0))
+        # Camera orientation
+        look_at = center_location
         forward = (look_at - camera_loc).normalized()
-        
-        up = Vector((0, 0, 1))  # Default up vector
-        if abs(forward.dot(up)) > 0.999:  # Handle degeneracy at poles
-            up = Vector((1, 0, 0))  # Choose a different up vector
-            
+        up = Vector((0, 0, 1))
+        if abs(forward.dot(up)) > 0.999:  # Prevent degeneracy at poles
+            up = Vector((1, 0, 0))
+
         right = forward.cross(up).normalized()
         up = right.cross(forward)
+
         camera_matrix = Matrix((
             right.to_4d(),
             up.to_4d(),
             (-forward).to_4d(),
             camera_loc.to_4d(),
         )).transposed()
+
         views.append(camera_matrix)
-    return views    
-def create_camera(view, camera_idx):
-    """
-    Create a temporary camera at a specified view and return the camera object.
-    """
-    cam_data = bpy.data.cameras.new(name=f"Camera_v{camera_idx}")
-    cam_obj = bpy.data.objects.new(name=f"Camera_v{camera_idx}", object_data=cam_data)
-    bpy.context.collection.objects.link(cam_obj)
-    cam_obj.matrix_world = view
-    return cam_obj
+
+    return views 
+
+def get_or_create_collection(name):
+    """ Get or create a collection with the given name """
+    if name in bpy.data.collections:
+        return bpy.data.collections[name]
+    
+    collection = bpy.data.collections.new(name)
+    bpy.context.scene.collection.children.link(collection)
+    return collection
 
 
 
@@ -67,7 +78,8 @@ def get_absolute_path(path):
 
 def export_weights(self, context, output_directory):
     # Collect weights from the selected object (armature or mesh)
-    obj = context.object
+    scene = context.scene
+    obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
     if not obj or obj.type != 'MESH':
         self.report({'WARNING'}, "No mesh object selected")
         return
@@ -89,7 +101,8 @@ def export_weights(self, context, output_directory):
     print(f"LBS weights exported to {weights_file_path}...")
 
 def export_uv_maps(self, context, output_directory):
-    obj = context.object
+    scene = context.scene
+    obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
     if not obj or obj.type != 'MESH':
         self.report({'WARNING'}, "No mesh object selected")
         return
@@ -115,7 +128,7 @@ def export_uv_maps(self, context, output_directory):
 
 def export_depth_images(self, context, output_directory):
     scene = context.scene
-    obj = context.object
+    obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
     scene.depth_progress = 0.0
     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
@@ -124,21 +137,22 @@ def export_depth_images(self, context, output_directory):
         self.report({'ERROR'}, "No object selected.")
         return
 
-    # Define view offsets (relative to the object)
-    num_camera_views = context.scene.num_views
-    distance = context.scene.camera_distance
-    views = random_camera_views(num_camera_views, radius=distance)
+    # Get cameras from Camera_Views collection
+    collection = get_or_create_collection("Camera_Views")
+    cameras = list(collection.objects)
+    if not cameras:
+        self.report({'ERROR'}, "No cameras found in the Camera_Views collection.")
+        return
 
     # Export depth images for each view
     num_keyframes = context.scene.num_keyframes
     keyframes = get_keyframes(num_keyframes)
 
     current_render = 0
-    total_renders = len(views) * len(keyframes)
-    for v, view_matrix in enumerate(views):
-        camera = create_camera(view_matrix, v)
-
-        path = os.path.join(output_directory, f"view_{v}.npy")
+    total_renders = len(cameras) * len(keyframes)
+    for camera_index, camera in enumerate(cameras):
+        view_matrix = camera.matrix_world
+        path = os.path.join(output_directory, f"view_{camera_index}.npy")
         np.save(path, view_matrix)
 
         for keyframe in keyframes:
@@ -148,7 +162,7 @@ def export_depth_images(self, context, output_directory):
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
             scene.frame_set(keyframe)
-            render_depth(self, camera, keyframe, v, output_directory)
+            render_depth(self, camera, keyframe, camera_index, output_directory)
 
     scene.depth_progress = 0.0
     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
