@@ -1,6 +1,11 @@
 import os 
-import torch 
+import torch
+import io
+import zipfile
 import time
+import uuid
+import yaml
+import shutil
 import numpy as np
 
 from flask import Flask, request, jsonify, send_file
@@ -27,9 +32,9 @@ app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
 
 # Preload models
 print("Initializing models...")
-controlnet_normal = ControlNetModel.from_pretrained("lllyasviel/control_v11p_sd15_normalbae", variant="fp16", torch_dtype=torch.float16)
+controlnet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1p_sd15_depth", variant="fp16", torch_dtype=torch.float16)
 pipe = StableDiffusionControlNetPipeline.from_pretrained(
-    "runwayml/stable-diffusion-v1-5", controlnet=controlnet_normal, torch_dtype=torch.float16, image_encoder=None
+	"runwayml/stable-diffusion-v1-5", controlnet=controlnet, torch_dtype=torch.float16
 )
 pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
 
@@ -87,9 +92,30 @@ def process():
     # Process the mesh using preloaded models and user-provided prompt
     try:
         print("Starting SyncMVD...")
-        result = process_mesh_with_preloaded_models(pipe, upload_path, output_path, prompt, steps, send_progress_update)
-        return jsonify(result)
+        process_mesh_with_preloaded_models(pipe, upload_path, output_path, prompt, steps, send_progress_update)
         
+        results_dir = os.path.join(os.path.dirname(output_path), 'results')
+    
+        if not os.path.exists(results_dir):
+            return {"error": "Results directory not found"}, 404
+    
+        files_to_zip = [f for f in os.listdir(results_dir) if os.path.splitext(f)[1] in{".obj", ".mtl", ".png"}]
+    
+        if not files_to_zip:
+            return {"error": "No valid files found in results directory"}, 404
+    
+        zip_buffer = io.BytesIO()
+    
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for filename in files_to_zip:
+                file_path = os.path.join(results_dir, filename)
+                zip_file.write(file_path, filename)
+    
+        zip_buffer.seek(0)
+        return send_file(zip_buffer, mimetype="application/zip", as_attachment=True, download_name="results.zip")
+    
+        #return jsonify(result)
+
         # Simulate progress update
         # for i in range(101):
         #     time.sleep(0.1)
@@ -140,6 +166,90 @@ def process_animated():
         "view_count": len(views),
     })
     
+@app.route('/process_sequence', methods=['POST'])
+def process_sequence():
+
+    temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(uuid.uuid4()))
+    os.makedirs(temp_dir)
+
+    # Check if the request contains files
+    if 'config' not in request.files or 'mesh' not in request.files:
+        return jsonify({"error": "Missing config or mesh in the request"}), 400
+    
+    # Get the config YAML file
+    config_file = request.files['config']
+    if not config_file.filename.endswith('.yaml'):
+        return jsonify({"error": "Config file must be a YAML file"}), 400
+    config_path = os.path.join(temp_dir, 'config.yaml')
+    config_file.save(config_path)
+    
+    # Get the OBJ files
+    obj_files = request.files.getlist('mesh')
+    if not obj_files:
+        return jsonify({"error": "No OBJ files provided"}), 400
+    
+    # Create a subdirectory for the OBJ files
+    obj_folder = os.path.join(temp_dir, 'meshes')
+    if not os.path.exists(obj_folder):
+        os.makedirs(obj_folder)
+    
+    # Save the OBJ files
+    for obj_file in obj_files:
+        if obj_file.filename.endswith('.obj'):
+            obj_path = os.path.join(obj_folder, obj_file.filename)
+            obj_file.save(obj_path)
+        else:
+            return jsonify({"error": f"File {obj_file.filename} is not a valid .obj file"}), 400
+
+    # Load the YAML file
+    try:
+        with open(config_path, 'r') as yaml_file:
+            config_data = yaml.safe_load(yaml_file)
+    except yaml.YAMLError as e:
+        return jsonify({"error": f"Error parsing YAML file: {str(e)}"}), 400
+
+    # Define output path for the texture
+    output_path = os.path.join(app.config['OUTPUT_FOLDER'], f'texture.png')
+    
+    def send_progress_update(progress):
+        print(f"___Sending progress: {progress}%")
+        socketio.emit('progress_update', {'progress': progress})
+
+    try:
+        print("Starting SyncMVD...")
+        prompt = config_data.get('prompt', 'Default prompt')
+        steps = config_data.get('steps', 20)
+        process_mesh_with_preloaded_models(pipe, obj_folder, output_path, prompt, steps, send_progress_update)
+        
+        results_dir = os.path.join(os.path.dirname(output_path), 'results')
+    
+        if not os.path.exists(results_dir):
+            return {"error": "Results directory not found"}, 404
+    
+        files_to_zip = [f for f in os.listdir(results_dir) if os.path.splitext(f)[1] in{".obj", ".mtl", ".png"}]
+    
+        if not files_to_zip:
+            return {"error": "No valid files found in results directory"}, 404
+    
+        zip_buffer = io.BytesIO()
+    
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for filename in files_to_zip:
+                file_path = os.path.join(results_dir, filename)
+                zip_file.write(file_path, filename)
+    
+        zip_buffer.seek(0)
+        return send_file(zip_buffer, mimetype="application/zip", as_attachment=True, download_name="results.zip")
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    finally:
+        # Delete the temporary directory and its contents after processing is complete
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+    
+
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=7340)

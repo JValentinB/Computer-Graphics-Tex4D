@@ -6,6 +6,7 @@ import traceback
 
 from PIL import Image
 from io import BytesIO
+from src.configs import *
 
 def process_mesh_with_preloaded_models(
         pipe, 
@@ -43,6 +44,7 @@ def process_mesh_with_preloaded_models(
             'shuffle_bg_change': False,
             'shuffle_bg_end': 1.0,
         }
+        #opt = parse_config()
 
         # Process the mesh with the user-provided prompt
         print(f"Running SyncMVD with mesh: {mesh_path} and prompt: {prompt}")
@@ -85,12 +87,22 @@ def process_mesh_with_preloaded_models(
             progress_callback=progress_callback,
         )
         print("Finished SyncMVD.")
-        
+
+        #return handle_single_mesh(output_path)
+
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        print(traceback.format_exc())
+
+def handle_single_mesh(output_path):
         # open the textured mesh from output_path/results/textured.obj
         textured_mesh_path = os.path.join(os.path.dirname(output_path), 'results', 'textured.obj')
         with open(textured_mesh_path, 'r') as f:
             textured_mesh = f.read()
         
+
+        #for i, texture in enumerate(result_tex_rgb):
         # Save the result
         if result_tex_rgb.dim() == 3 and result_tex_rgb.size(0) == 3:
             # Convert tensor from [C, H, W] to [H, W, C] for PIL compatibility
@@ -109,7 +121,3 @@ def process_mesh_with_preloaded_models(
             }
         else:
             raise ValueError("Tensor does not have the correct shape or number of channels.")
-
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        print(traceback.format_exc())
