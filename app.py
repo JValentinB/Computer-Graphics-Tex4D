@@ -168,7 +168,9 @@ def process_animated():
     
 @app.route('/process_sequence', methods=['POST'])
 def process_sequence():
-
+    print("Received meshes!\n")
+    print(request)
+    print(request.files)
     temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(uuid.uuid4()))
     os.makedirs(temp_dir)
 
@@ -212,7 +214,7 @@ def process_sequence():
     output_path = os.path.join(app.config['OUTPUT_FOLDER'], f'texture.png')
     
     def send_progress_update(progress):
-        print(f"___Sending progress: {progress}%")
+        print(f"___Sending progress: {progress * 100}%")
         socketio.emit('progress_update', {'progress': progress})
 
     try:

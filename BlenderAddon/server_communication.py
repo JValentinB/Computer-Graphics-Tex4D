@@ -3,20 +3,24 @@ import requests
 import threading
 import base64
 import sys
+import io
+import zipfile
 sys.executable
 
 from .utils import *
 
 try: 
     import socketio
+    import yaml
 except:
     import pip
     import sys
     modules_path = bpy.utils.user_resource("SCRIPTS", path="modules")
     sys.path.append(modules_path)
-    pip.main(['install', 'python-socketio', 'websocket-client', '--target', modules_path])
+    pip.main(['install', 'python-socketio', 'websocket-client', 'pyyaml', '--target', modules_path])
         
     import socketio
+    import yaml
 
 
 
@@ -53,6 +57,54 @@ def send_single_mesh(mesh_path, prompt, inference_steps, keyframe=0):
         # Close file handles
         for file in files.values():
             file[1].close()
+
+def send_minimal_data(context, mesh_dir, prompt, inference_steps):
+    """ Send the mesh files and config file to the server."""
+    output_dir = context.scene.output_directory
+
+    config_dict = {
+    'mesh': 'mesh',
+    'mesh_config_relative': True,
+    'use_mesh_name' : False,
+    'prompt': prompt,
+    'steps': inference_steps,
+    'cond_type': "depth",
+    'seed' : 1,
+    'mesh_scale' : 1,
+    'tex_fast_preview': True,
+    'view_fast_preview' :  True
+   }
+    config_filename = os.path.join(mesh_dir, "config.yaml")
+
+    # Save the config dictionary to the YAML file
+    with open(config_filename, 'w') as config_file:
+        yaml.dump(config_dict, config_file)
+
+    
+    # Open mesh files
+    mesh_paths = [os.path.join(mesh_dir, f) for f in os.listdir(mesh_dir) if f.endswith(".obj")]
+    obj_files = [('mesh', open(path, 'rb')) for path in mesh_paths]
+    config_file = ('config', open(config_filename, 'rb'))
+
+    # Send the request
+    try:
+        response = requests.post(SERVER_URL + "/process_sequence", files=obj_files + [config_file])
+        response.raise_for_status()
+
+        if response.status_code == 200:
+            # Create the save directory if it doesn't exist
+            os.makedirs(output_dir, exist_ok=True)
+    
+            # Unzip the contents directly from memory
+            with zipfile.ZipFile(io.BytesIO(response.content), 'r') as zip_ref:
+                zip_ref.extractall(output_dir)
+    except requests.exceptions.RequestException as e:
+        print("Error communicating with server:", e)
+    finally:
+        # Ensure all files are closed after the request
+        config_file[1].close()
+        for file in obj_files.values():
+            file.close()
             
 def send_all_data(context, mesh_dir, prompt, inference_steps):
     """ Send the mesh files, text prompt, inference steps, as well as view files and depth images to the server."""
@@ -159,8 +211,9 @@ def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps):
                 # material = bpy.context.active_object.active_material
                 # setup_texture_interpolation(material, texture_paths, current_frame, total_frames)
                 # bpy.app.handlers.frame_change_post.append(update_switch_factor)
-                print("Sending all data")
-                send_all_data(bpy.context, mesh_path, prompt, inference_steps)
+
+                send_minimal_data(bpy.context, mesh_path, prompt, inference_steps)
+                #send_all_data(bpy.context, mesh_path, prompt, inference_steps)
             else:
                 # Prepare the files to send
                 send_single_mesh(mesh_path, prompt, inference_steps)
