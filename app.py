@@ -1,6 +1,7 @@
 import os 
 import torch 
 import time
+import numpy as np
 
 from flask import Flask, request, jsonify, send_file
 from flask_socketio import SocketIO, emit
@@ -101,7 +102,44 @@ def process():
     # # Return the textured mesh
     # return send_file(output_path, as_attachment=True)
     
+@app.route('/process_animated', methods=['POST'])
+def process_animated():
+    print("Received an animated mesh!\n")
 
+    # Extract prompt and inference steps
+    prompt = request.form.get("prompt", "No prompt provided")
+    inference_steps = int(request.form.get("inference_steps", 1))
+
+    # Initialize storage for different file types
+    meshes = {}
+    depths = {}
+    views = {}
+
+    # Process uploaded files
+    for key, file in request.files.items():
+        print(f"Processing file: {key}")
+        if key.startswith("mesh_"):
+            keyframe = int(key.split("_")[1])  # Extract keyframe
+            meshes[keyframe] = file.read()  # Read mesh content as bytes
+        
+        elif key.startswith("depth_"):
+            parts = key.split("_")  # Format: depth_{view}_{keyframe}
+            view, keyframe = int(parts[1]), int(parts[2])
+            depths[(view, keyframe)] = file.read()  # Read depth image as bytes
+        
+        elif key.startswith("view_"):
+            view = int(key.split("_")[1])  # Extract view number
+            views[view] = np.load(file)  # Load .npy file directly into an array
+
+    print(f"View matrices: {views}\n")
+
+    return jsonify({
+        "result": "success",
+        "mesh_count": len(meshes),
+        "depth_count": len(depths),
+        "view_count": len(views),
+    })
+    
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=7341)
+    socketio.run(app, host='0.0.0.0', port=7340)

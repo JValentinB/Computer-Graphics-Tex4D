@@ -7,7 +7,14 @@ import traceback
 from PIL import Image
 from io import BytesIO
 
-def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inference_steps=10, progress_callback=None):
+def process_mesh_with_preloaded_models(
+        pipe, 
+        mesh_path, 
+        output_path: str, 
+        prompt: str = "", 
+        inference_steps: int = 10,
+        progress_callback=None
+    ):
     try:
         # Initialize StableSyncMVDPipeline with preloaded components
         syncmvd = StableSyncMVDPipeline(**pipe.components)
@@ -39,7 +46,7 @@ def process_mesh_with_preloaded_models(pipe, mesh_path, output_path, prompt, inf
 
         # Process the mesh with the user-provided prompt
         print(f"Running SyncMVD with mesh: {mesh_path} and prompt: {prompt}")
-        result_tex_rgb, textured_views, v = syncmvd(
+        result_tex_rgb = syncmvd(  #result_tex_rgb, textured_views, v = syncmvd(
             prompt=prompt,  # Use the prompt provided by the client
             height=opt['latent_view_size'] * 8,
             width=opt['latent_view_size'] * 8,

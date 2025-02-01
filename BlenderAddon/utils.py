@@ -1,10 +1,11 @@
 import bpy
 import os
 import tempfile
-
-import numpy as np
-from mathutils import Vector, Matrix
 import re
+import numpy as np
+
+from mathutils import Vector, Matrix
+
 
 def log_message(message, level='INFO'):
     levels = {

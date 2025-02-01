@@ -14,7 +14,8 @@ class CameraViewOperator(bpy.types.Operator):
         
         # Store current values to prevent reset
         current_views = scene.view_count
-        current_radius = scene.radius
+        current_distance = scene.distance
+        current_scale = scene.scale
         current_coverage = scene.coverage
         
         target_object = context.scene.selected_object if context.scene.selected_object else context.view_layer.objects.active
@@ -23,7 +24,7 @@ class CameraViewOperator(bpy.types.Operator):
             return {'CANCELLED'}
         world_location = target_object.matrix_world.to_translation()
         
-        setup_cameras(current_views, current_radius, current_coverage, world_location)    
+        setup_cameras(current_views, current_distance, current_scale, current_coverage, world_location)    
         return {'FINISHED'}
         
 def update_handler(self, context):
@@ -38,11 +39,14 @@ def create_camera_parent(center_location):
     bpy.context.scene.collection.objects.link(empty)
     return empty
  
-def create_camera(view, camera_idx, collection, parent=None):
-    """ Create a camera and parent it to the given object """
+def create_camera(view, camera_idx, collection, parent=None, ortho_scale=1.0):
+    """ Create an orthographic camera and parent it to the given object if provided """
     cam_data = bpy.data.cameras.new(name=f"Camera_{camera_idx}")
+    cam_data.type = 'ORTHO'  # Set camera to orthographic
+    cam_data.ortho_scale = ortho_scale  # Set orthographic scale
+
     cam_obj = bpy.data.objects.new(name=f"Camera_{camera_idx}", object_data=cam_data)
-    
+
     # Link to the scene collection
     collection.objects.link(cam_obj)
 
@@ -55,7 +59,7 @@ def create_camera(view, camera_idx, collection, parent=None):
 
     return cam_obj
 
-def setup_cameras(v, radius, coverage, center_location):
+def setup_cameras(v, distance, scale, coverage, center_location):
     """ Setup the camera system with a parent empty for rotation """
     collection = get_or_create_collection("Camera_Views")
 
@@ -70,9 +74,9 @@ def setup_cameras(v, radius, coverage, center_location):
     parent_empty = create_camera_parent(center_location)
 
     # Generate new camera views
-    views = random_camera_views(v, radius, coverage, Vector((0, 0, 0)))
+    views = random_camera_views(v, distance, coverage, Vector((0, 0, 0)))
     for i, view in enumerate(views):
-        create_camera(view, i, collection, parent=parent_empty)
+        create_camera(view, i, collection, parent=parent_empty, ortho_scale=scale)
 
     return parent_empty
 
