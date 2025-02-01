@@ -16,18 +16,16 @@ from diffusers.models import AutoencoderKL, ControlNetModel, UNet2DConditionMode
 from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.utils import (
-	BaseOutput, 
-	randn_tensor, 
+	BaseOutput,
 	numpy_to_pil,
 	pt_to_pil,
 	# make_image_grid,
 	is_accelerate_available,
 	is_accelerate_version,
-	is_compiled_module,
 	logging,
 	replace_example_docstring
 	)
-#from diffusers.utils.torch_utils import (randn_tensor, is_compiled_module)
+from diffusers.utils.torch_utils import (randn_tensor, is_compiled_module)
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from diffusers.models.attention_processor import Attention, AttentionProcessor
@@ -155,12 +153,14 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		scheduler: KarrasDiffusionSchedulers,
 		safety_checker: StableDiffusionSafetyChecker,
 		feature_extractor: CLIPImageProcessor,
+		image_encoder=None,
 		requires_safety_checker: bool = False,
+
 	):
 		super().__init__(
 			vae, text_encoder, tokenizer, unet, 
 			controlnet, scheduler, safety_checker, 
-			feature_extractor, requires_safety_checker
+			feature_extractor, image_encoder, requires_safety_checker
 		)
 
 		self.scheduler = DDPMScheduler.from_config(self.scheduler.config)
@@ -402,17 +402,17 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 
 		# 1. Check inputs. Raise error if not correct
-		self.check_inputs(
-			prompt,
-			torch.zeros((1,3,height,width), device=self._execution_device),
-			callback_steps,
-			negative_prompt,
-			None,
-			None,
-			controlnet_conditioning_scale,
-			control_guidance_start,
-			control_guidance_end,
-		)
+		# self.check_inputs(
+		# 	prompt,
+		# 	torch.zeros((1,3,height,width), device=self._execution_device),
+		# 	callback_steps,
+		# 	negative_prompt,
+		# 	None,
+		# 	None,
+		# 	controlnet_conditioning_scale,
+		# 	control_guidance_start,
+		# 	control_guidance_end,
+		# )
 
 
 		# 2. Define call parameters

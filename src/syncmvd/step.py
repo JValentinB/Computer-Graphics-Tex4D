@@ -1,5 +1,4 @@
 import torch
-from diffusers.utils import randn_tensor
 from diffusers.utils.torch_utils import randn_tensor
 from src.renderer.voronoi import voronoi_solve
 '''
@@ -103,9 +102,9 @@ def step_tex(
 		texture = torch.stack(texture, dim=0)
 
 	# 5.1 Tex4D previous texture calculation: Eq (5)
-	factor = (alpha_prod_t / beta_prod_t) ** (0.5) * ( alpha_prod_t ** (0.5) * texture - original_tex) + beta_prod_t ** (0.5) * texture
-	prev_tex = alpha_prod_t_prev ** (0.5) * original_tex + beta_prod_t_prev ** (0.5) * factor
-	#prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
+	# factor = (alpha_prod_t / beta_prod_t) ** (0.5) * ( alpha_prod_t ** (0.5) * texture - original_tex) + beta_prod_t ** (0.5) * texture
+	# prev_tex = alpha_prod_t_prev ** (0.5) * original_tex + beta_prod_t_prev ** (0.5) * factor
+	prev_tex = pred_original_sample_coeff * original_tex + current_sample_coeff * texture
 
 	# reference_uv = torch.zeros_like(prev_tex)
 	# The reference map is regenerated at every step by sequentially combining the texture of every key frame
