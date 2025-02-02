@@ -288,6 +288,60 @@ def extract_keyframe_number(filename):
     if match:
         return int(match.group(1))  # Return the keyframe number as an integer
     return None  # Return None if no match is found 
+
+def create_animated_material():
+
+    scene = bpy.context.scene
+
+    material = bpy.data.materials.new(name="Tex4D_Material")
+    material.use_nodes = True
+    
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    
+    # Clear existing nodes
+    for node in nodes:
+        nodes.remove(node)
+    
+    # Create a Principled BSDF node
+    principled_bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+    principled_bsdf.location = (0, 0)
+    
+    # Create a Material Output node
+    material_output = nodes.new(type='ShaderNodeOutputMaterial')
+    material_output.location = (400, 0)
+
+    # Create an AnimateTextureNode
+    animate_texture_node = nodes.new("AnimateTextureNode")
+    animate_texture_node.location = (-200, 0)
+    
+    # Links
+    links.new(animate_texture_node.outputs["Interpolated Output"], principled_bsdf.inputs['Base Color'])
+    links.new(principled_bsdf.outputs['BSDF'], material_output.inputs['Surface'])
+
+
+    # Count existing textures
+    texture_count = len([s for s in animate_texture_node.node_tree.interface.items_tree if s.in_out == 'INPUT' and "Image" in s.name])
+            
+    # Add new image inputs
+    num_keyframes = scene.num_keyframes
+    if(num_keyframes > texture_count):
+        for i in range( num_keyframes - texture_count):
+            animate_texture_node._add_image_input(f"Image_{texture_count + i + 1}")
+    
+    if not scene.output_directory:
+        return None
+    
+    for i in range(num_keyframes):
+        image_texture = nodes.new(type='ShaderNodeTexImage')
+        image_texture.location = (-600, -i * 200)
+        input_name = f"Image_{i+1} Texture"
+        image_path = os.path.join(scene.output_directory, f"textured_{i:02}.png")
+        image_texture.image = bpy.data.images.load(image_path)
+        if input_name in animate_texture_node.inputs:
+            links.new(image_texture.outputs['Color'], animate_texture_node.inputs[input_name])
+
+    return material
     
 def setup_texture_interpolation(material, texture_paths, current_frame, total_frames):
     """

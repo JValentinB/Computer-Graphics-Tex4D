@@ -18,6 +18,7 @@ class AnimateTextureNode(bpy.types.ShaderNodeCustomGroup):
         output_node = self.node_tree.nodes.new("NodeGroupOutput")
         output_node.location = (800, 0)
 
+
         self._create_first_texture_setup()
 
     def _create_first_texture_setup(self):
@@ -64,6 +65,7 @@ class AnimateTextureNode(bpy.types.ShaderNodeCustomGroup):
         # Initialize with 2 textures = 2 mix nodes (including loop)
         self._add_loop_mix()
         self._update_math_nodes(2)
+
         
     def _add_loop_mix(self):
         """Add final mix node that loops back to first texture"""
