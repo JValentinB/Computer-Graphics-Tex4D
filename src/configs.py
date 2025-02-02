@@ -32,7 +32,7 @@ def parse_config():
     parser.add_argument('--latent_tex_size', type=int, default=512, help='Originally 1536 in paper, use lower resolution save VRAM')
     parser.add_argument('--rgb_view_size', type=int, default=1536)
     parser.add_argument('--rgb_tex_size', type=int, default=1024)
-    parser.add_argument('--camera_azims', type=int, nargs="*", default=[-180, -120, -60, 0, 60, 120], help='Place the cameras at the listed azim angles')
+    parser.add_argument('--camera_azims', type=int, nargs="*", default=[-180, -90, 0, 90], help='Place the cameras at the listed azim angles')
     parser.add_argument('--no_top_cameras', action='store_true', help='Two cameras added to paint the top surface')
     parser.add_argument('--mvd_end', type=float, default=0.8, help='Time step to stop texture space aggregation')
     parser.add_argument('--mvd_exp_start', type=float, default=0.0, help='Initial exponent for weighted texture space aggregation, low value encourage consistency')

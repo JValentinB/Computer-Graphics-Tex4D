@@ -15,6 +15,7 @@ from diffusers import DDPMScheduler, DDIMScheduler, UniPCMultistepScheduler
 from diffusers.models import AutoencoderKL, ControlNetModel, UNet2DConditionModel
 from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.image_processor import VaeImageProcessor
+from torchvision import transforms
 from diffusers.utils import (
 	BaseOutput,
 	numpy_to_pil,
@@ -177,8 +178,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			mesh_autouv=None,
 			camera_azims=None,
 			camera_centers=None,
-			top_cameras=True,
-			down_cameras=True,
+			top_cameras=False,
+			down_cameras=False,
 			ref_views=[],
 			latent_size=None,
 			render_rgb_size=None,
@@ -193,8 +194,10 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		self.result_dir = f"{output_dir}/results"
 		self.intermediate_dir = f"{output_dir}/intermediate"
+		self.first_key_frame = f"{output_dir}/first_key_frame"
 
-		dirs = [output_dir, self.result_dir, self.intermediate_dir]
+
+		dirs = [output_dir, self.result_dir, self.intermediate_dir, self.first_key_frame]
 		for dir_ in dirs:
 			if not os.path.isdir(dir_):
 				os.mkdir(dir_)
@@ -259,7 +262,9 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		elif os.path.isdir(mesh_path):
 			mesh_list = []
 			for file in os.listdir(mesh_path):
-				mesh_list.append(os.path.join(mesh_path, file))
+				if file.endswith(".obj"):  # 确保是.obj文件
+					mesh_list.append(os.path.join(mesh_path, file))
+			mesh_list.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0][4:]))  # assume that the number comes after text
 			self.uvp.load_mesh(mesh_list, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
 		else:
 			assert False, "The mesh file format is not supported. Use .obj or .glb."
@@ -752,7 +757,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						decoded_results = []
 						for latent_images in intermediate_results[-1]:
 							images = latent_preview(latent_images.to(self._execution_device))
-							images = np.concatenate([img for img in images], axis=1)
+							images = np.concatenate([img for img in images], axis=1) # 竖着拼接啊
 							decoded_results.append(images)
 						result_image = np.concatenate(decoded_results, axis=0)
 						numpy_to_pil(result_image)[0].save(f"{self.intermediate_dir}/step_{i:02d}.jpg")
@@ -798,10 +803,67 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 					elif userInput == "end":
 						exit(0)
 
-		
+		# TODO: write a render function and replace the background with the background image.
 		self.uvp.to(self._execution_device)
 		self.uvp_rgb.to(self._execution_device)
-		result_tex_rgb, result_tex_rgb_output = get_rgb_texture(self.vae, self.uvp_rgb, latents)
+
+		result_tex_rgb, result_tex_rgb_output, textured_views_rgb = get_rgb_texture(self.vae, self.uvp_rgb, latents)
+
+		offset = (2048 - 1536) // 2
+
+		background_image = Image.open(os.path.join(os.getcwd(), "data/taunt/image.jpg"))
+		tensor_image = torch.from_numpy(np.array(background_image)).to(self._execution_device) # [H, W, C]
+		tensor_image = tensor_image.permute(2, 0, 1)
+		tensor_image = tensor_image.float() / 255.0
+		tensor_image = torch.cat([tensor_image, torch.ones(1, 1024, 1024, device=tensor_image.device)], dim=0)
+
+		resize_transform = transforms.Resize((2048, 2048))
+		tensor_image = resize_transform(tensor_image.unsqueeze(0)).squeeze(0)
+
+		tensor_image_list = [tensor_image for _ in range(10)]
+
+		expanded_image = torch.zeros((4, 2048, 2048), device=self._execution_device)
+
+		# we only need the first frame and its depth map (10 camera view)!
+
+		expanded_image_list = []
+		for textured_view_rgb in textured_views_rgb[0]:
+			expanded_image[:, offset:offset + 1536, offset:offset + 1536] = textured_view_rgb
+			expanded_image_list.append(expanded_image.clone())
+		masks = [mask[3,...] for mask in expanded_image_list]
+		composited_images = composite_rendered_view(self.scheduler, tensor_image_list, expanded_image_list, masks,
+													t)
+		# For visualization
+		# composited_array = composited_tensor[0].permute(1, 2, 0).cpu().numpy()
+		# # Convert the NumPy array to an image
+		# composited_image = Image.fromarray((composited_array * 255).astype(np.uint8))
+		# # Display the image
+		# composited_image.show()
+
+		# TODO: output depth map as condition image
+		# for image in composited_images:
+		# 	composited_array = image.permute(1, 2, 0).cpu().numpy()
+		# 	composited_image = Image.fromarray((composited_array * 255).astype(np.uint8))
+		# 	if composited_image.mode == 'RGBA':
+		# 		composited_image = composited_image.convert('RGB')
+		# 	composited_image.save(f"{self.first_key_frame}/first_key_frame.jpg")
+
+		# For test
+		image = composited_images[3]
+		composited_array = image.permute(1, 2, 0).cpu().numpy()
+		composited_image = Image.fromarray((composited_array * 255).astype(np.uint8))
+		if composited_image.mode == 'RGBA':
+			composited_image = composited_image.convert('RGB')
+		composited_image.save(f"{self.first_key_frame}/first_key_frame.jpg")
+
+		# TODO: output depth map as condition image
+		for i in range(self.key_frames_num):
+			depth_map = conditioning_images[i][3]
+			depth_map = depth_map.cpu().numpy()
+			depth_map = (depth_map - np.min(depth_map)) / (np.max(depth_map) - np.min(depth_map))
+			depth_map = Image.fromarray((depth_map[0,...] * 255).astype(np.uint8))
+			depth_map.save(f"{self.first_key_frame}/depth_map_{i:05d}.jpg")
+
 		for i, result_tex_rgb_tmp in enumerate(result_tex_rgb):
 			self.uvp.save_mesh(f"{self.result_dir}/textured_{i:02d}.obj", result_tex_rgb_tmp,i)
 

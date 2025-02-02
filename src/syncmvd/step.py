@@ -150,6 +150,7 @@ def step_tex(
 		prev_tex[i] = ((1 - blending_weight) * prev_tex[i] + blending_weight * reference_uv) * mask + reference_uv * ~mask
 
 	uvp.set_texture_map(prev_tex)
+
 	prev_views = uvp.render_textured_views()
 	pred_prev_sample = torch.clone(sample)
 	for i, view in enumerate(prev_views):

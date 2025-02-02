@@ -57,12 +57,20 @@ def latent_preview(x):
 # Decode each view and bake them into a rgb texture
 def get_rgb_texture(vae, uvp_rgb, latents):
 	result_views = vae.decode(latents / vae.config.scaling_factor, return_dict=False)[0]
+	# uvp_rgb.render_size = 1024
 	resize = Resize((uvp_rgb.render_size,)*2, interpolation=InterpolationMode.NEAREST_EXACT, antialias=True)
 	result_views = resize(result_views / 2 + 0.5).clamp(0, 1).unbind(0)
+	# uvp_rgb.renderer.rasterizer.raster_settings.image_size = 1024
 	textured_views_rgb, result_tex_rgb, visibility_weights, _, _= uvp_rgb.bake_texture(views=result_views, main_views=[], exp=6, noisy=False)
+	# masks = [weight > 0 for weight in visibility_weights]
 	result_tex_rgb_list = []
 	for result_tex_rgb_tmp in result_tex_rgb:
 		result_tex_rgb_list.extend(result_tex_rgb_tmp.permute(1,2,0).cpu()[None,...])
-	return result_tex_rgb_list, result_tex_rgb
+	return result_tex_rgb_list, result_tex_rgb, textured_views_rgb   #, masks
+
+def render_latents(vae, uvp, latents, exp=6):
+	result_views = vae.decode(latents / vae.config.scaling_factor, return_dict=False)[0]
+	textured_views, result_tex, visibility_weights, _, _= uvp.bake_texture(views=result_views.unbind(0), main_views=[], exp=exp, noisy=False)
+	return textured_views, result_tex
 
 

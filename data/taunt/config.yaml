@@ -1,8 +1,8 @@
 mesh: "taunt_obj"
 mesh_config_relative: True    # mesh is placed relative to the config file
 use_mesh_name: False
-prompt: "a full-body photo of spiderman, a super hero in DC."
-steps: 30
+prompt: "a full-body photo of spiderman"
+steps: 25
 cond_type: "depth"
 seed: 1
 mesh_scale: 1
