@@ -31,8 +31,11 @@ class Tex4DPanel(bpy.types.Panel):
         
         layout.prop(scene, "view_count")
         layout.prop(scene, "distance")
-        layout.prop(scene, "scale")
-        layout.prop(scene, "coverage")
+        # layout.prop(scene, "scale")
+
+        col = layout.column(align=True)  # Ensures rows are tightly packed
+        col.prop(scene, "coverage_top")
+        col.prop(scene, "coverage_bottom")
         layout.separator()
         
         layout.prop(scene, "num_keyframes")
@@ -73,6 +76,9 @@ class ExportOperator(bpy.types.Operator):
         
         # Normalize the path to an absolute path
         output_directory = get_absolute_path(output_directory)
+        # delete all files from the output directory
+        for file in os.listdir(output_directory):
+            os.remove(os.path.join(output_directory, file))
         
         if not os.path.exists(output_directory):
             try:
@@ -174,8 +180,14 @@ def register():
         min=0.0,
         update=update_handler
     )
-    bpy.types.Scene.coverage = bpy.props.FloatProperty(
-        name="Camera Coverage",
+    bpy.types.Scene.coverage_top = bpy.props.FloatProperty(
+        name="Camera Coverage Top",
+        default=1.0,
+        min=0.0, max=1.0,
+        update=update_handler
+    )
+    bpy.types.Scene.coverage_bottom = bpy.props.FloatProperty(
+        name="Camera Coverage Bottom",
         default=1.0,
         min=0.0, max=1.0,
         update=update_handler
@@ -245,7 +257,8 @@ def unregister():
     del bpy.types.Scene.view_count
     del bpy.types.Scene.distance
     del bpy.types.Scene.scale
-    del bpy.types.Scene.coverage
+    del bpy.types.Scene.coverage_top
+    del bpy.types.Scene.coverage_bottom
     
     del bpy.types.Scene.prompt
     del bpy.types.Scene.output_directory

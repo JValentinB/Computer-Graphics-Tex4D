@@ -22,16 +22,17 @@ def get_keyframes(k):
 
     return np.linspace(start_frame, last_frame, k, dtype=int)
 
-def random_camera_views(count, radius=10.0, coverage=1.0, center_location=Vector((0, 0, 0))):
-    """ Generate camera positions on a sphere with adjustable vertical coverage """
+def random_camera_views(count, radius=10.0, top_coverage=1.0, bottom_coverage=1.0, center_location=Vector((0, 0, 0))):
+    """Generate camera positions on a sphere with adjustable vertical coverage (separately for top and bottom)"""
     views = []
-    phi = (1 + np.sqrt(5)) / 2  # Golden ratio
+    phi = (1 + np.sqrt(5)) / 2  # Golden ratio for spiral distribution
 
-    min_z = 1 - 2 * coverage  # Defines how low cameras can go (1 for full sphere, 0 for half, close to 1 for top)
+    max_z = 1 - 2 * top_coverage  # Highest z where cameras are placed
+    min_z = -1 + 2 * bottom_coverage  # Lowest z where cameras are placed
 
     for i in range(count):
         z = 1 - (2 * i) / (count - 1)  # Normalized range from 1 (top) to -1 (bottom)
-        z = min_z + (1 - min_z) * (z + 1) / 2  # Adjusted to fit within coverage range
+        z = min_z + (max_z - min_z) * (z + 1) / 2  # Scale within the top-bottom coverage range
 
         theta = 2 * np.pi * i / phi  # Spiral around the sphere
         x = np.sqrt(1 - z**2) * np.cos(theta)
@@ -57,7 +58,7 @@ def random_camera_views(count, radius=10.0, coverage=1.0, center_location=Vector
 
         views.append(camera_matrix)
 
-    return views 
+    return views
 
 def get_or_create_collection(name):
     """ Get or create a collection with the given name """
@@ -153,6 +154,7 @@ def export_depth_images(self, context, output_directory):
     total_renders = len(cameras) * len(keyframes)
     for camera_index, camera in enumerate(cameras):
         view_matrix = camera.matrix_world
+        print(f"View Matrix {camera_index}: {view_matrix}")
         path = os.path.join(output_directory, f"view_{camera_index}.npy")
         np.save(path, view_matrix)
 

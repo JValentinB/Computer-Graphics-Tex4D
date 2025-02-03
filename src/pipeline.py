@@ -187,6 +187,8 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 			max_batch_size=24,
 			logging_config=None,
+   
+			view_matrices=None,
 		):
 		# Make output dir
 		output_dir = logging_config["output_dir"]
@@ -202,44 +204,63 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		# Define the cameras for rendering
 		self.camera_poses = []
-		self.attention_mask=[]
+		self.attention_mask = []
 		self.centers = camera_centers
 
-		cam_count = len(camera_azims)
 		front_view_diff = 360
 		back_view_diff = 360
 		front_view_idx = 0
 		back_view_idx = 0
-		for i, azim in enumerate(camera_azims):
-			if azim < 0:
-				azim += 360
-			self.camera_poses.append((0, azim))
-			self.attention_mask.append([(cam_count+i-1)%cam_count, i, (i+1)%cam_count])
-			if abs(azim) < front_view_diff:
-				front_view_idx = i
-				front_view_diff = abs(azim)
-			if abs(azim - 180) < back_view_diff:
-				back_view_idx = i
-				back_view_diff = abs(azim - 180)
+		if view_matrices is None:
+			cam_count = len(camera_azims)
+			for i, azim in enumerate(camera_azims):
+				if azim < 0:
+					azim += 360
+				self.camera_poses.append((0, azim))
+				self.attention_mask.append([(cam_count+i-1)%cam_count, i, (i+1)%cam_count])
+				if abs(azim) < front_view_diff:
+					front_view_idx = i
+					front_view_diff = abs(azim)
+				if abs(azim - 180) < back_view_diff:
+					back_view_idx = i
+					back_view_diff = abs(azim - 180)
 
-		# Add two additional cameras for painting the top surfaces
-		if top_cameras:
-			self.camera_poses.append((30, 0))
-			self.camera_poses.append((30, 180))
+			# Additional cameras for top or down views
+			if top_cameras:
+				self.camera_poses.append((30, 0))
+				self.camera_poses.append((30, 180))
+				self.attention_mask.append([front_view_idx, cam_count])
+				self.attention_mask.append([back_view_idx, cam_count+1])
+			if down_cameras:
+				self.camera_poses.append((210, 0))
+				self.camera_poses.append((210, 180))
+				self.attention_mask.append([front_view_idx, cam_count+2])
+				self.attention_mask.append([back_view_idx, cam_count+3])
+		else: # if view matrices are provided
+			cam_count = len(view_matrices)
 
-			self.attention_mask.append([front_view_idx, cam_count])
-			self.attention_mask.append([back_view_idx, cam_count+1])
+			# Process each view matrix: extract pose and update front/back indices
+			for i, view_matrix in enumerate(view_matrices):
+				tilt, azim = rotation_matrix_to_tilt_azim(view_matrix[:3, :3])
+				# Normalize azimuth to [0, 360)
+				if azim < 0:
+					azim += 360
+				self.camera_poses.append((tilt, azim))
+				
+				# Build the attention mask for the basic views as in the original code.
+				# Using modulo arithmetic to create a circular neighborhood.
+				self.attention_mask.append([(cam_count+i-1) % cam_count, i, (i+1) % cam_count])
+				
+				# Determine which view is closest to 0° (front) and which is closest to 180° (back)
+				if abs(azim) < front_view_diff:
+					front_view_diff = abs(azim)
+					front_view_idx = i
+				if abs(azim - 180) < back_view_diff:
+					back_view_diff = abs(azim - 180)
+					back_view_idx = i
+		print(f"Camera Poses: {self.camera_poses}")
 
-		# Add two additional cameras for painting the top surfaces
-		if down_cameras:
-			self.camera_poses.append((210, 0))
-			self.camera_poses.append((210, 180))
-
-			self.attention_mask.append([front_view_idx, cam_count+2])
-			self.attention_mask.append([back_view_idx, cam_count+3])
-
-		# Reference view for attention (all views attend the the views in this list)
-		# A forward view will be used if not specified
+		# Reference view for attention (if none provided, default to front view)
 		if len(ref_views) == 0:
 			ref_views = [front_view_idx]
 
@@ -263,13 +284,22 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 			self.uvp.load_mesh(mesh_list, scale_factor=mesh_transform["scale"] or 1, autouv=mesh_autouv)
 		else:
 			assert False, "The mesh file format is not supported. Use .obj or .glb."
-		self.uvp.set_cameras_and_render_settings(self.camera_poses, centers=camera_centers, camera_distance=4.0)
+		
+		if view_matrices is None: 
+			self.uvp.set_cameras_and_render_settings(self.camera_poses, centers=camera_centers, camera_distance=4.0)
+		else:
+			self.uvp.set_cameras_and_render_settings_matrices(view_matrices)
 
 
 		self.uvp_rgb = UVP(texture_size=texture_rgb_size, render_size=render_rgb_size, sampling_mode="nearest", channels=3, device=self._execution_device)
 
 		self.uvp_rgb.mesh = [mesh.clone() for mesh in self.uvp.mesh]
-		self.uvp_rgb.set_cameras_and_render_settings(self.camera_poses, centers=camera_centers, camera_distance=4.0)
+
+		if view_matrices is None:
+			self.uvp_rgb.set_cameras_and_render_settings(self.camera_poses, centers=camera_centers, camera_distance=4.0)
+		else:
+			self.uvp_rgb.set_cameras_and_render_settings_matrices(view_matrices)
+
 		_, _, _, cos_maps, _, _= self.uvp_rgb.render_geometry()
 		self.uvp_rgb.calculate_cos_angle_weights(cos_maps, fill=False)
 
@@ -349,6 +379,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		cond_type="depth",
   
 		progress_callback=None,
+		view_matrices=None,
 	):
 		
 
@@ -369,7 +400,9 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 				max_batch_size=max_batch_size,
 
-				logging_config=logging_config
+				logging_config=logging_config, 
+
+				view_matrices=view_matrices,
 			)
 
 
@@ -528,7 +561,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 				if progress_callback:
 					progress_percentage = (progress_bar.n / progress_bar.total)
 					progress_callback(progress_percentage) 
-     
+	 
 				# mix prompt embeds  according to azim angle
 				positive_prompt_embeds = [azim_prompt(prompt_embed_dict, pose) for pose in self.camera_poses]
 				positive_prompt_embeds = torch.stack(positive_prompt_embeds, axis=0)

@@ -14,7 +14,8 @@ def process_mesh_with_preloaded_models(
         output_path: str, 
         prompt: str = "", 
         inference_steps: int = 10,
-        progress_callback=None
+        progress_callback=None,
+        view_matrices=None
     ):
     try:
         # Initialize StableSyncMVDPipeline with preloaded components
@@ -85,6 +86,7 @@ def process_mesh_with_preloaded_models(
             cond_type='depth',  # Adjust based on your logic
             
             progress_callback=progress_callback,
+            view_matrices=view_matrices,
         )
         print("Finished SyncMVD.")
 

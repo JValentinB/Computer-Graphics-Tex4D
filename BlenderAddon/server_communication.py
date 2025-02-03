@@ -84,11 +84,14 @@ def send_minimal_data(context, mesh_dir, prompt, inference_steps):
     # Open mesh files
     mesh_paths = [os.path.join(mesh_dir, f) for f in os.listdir(mesh_dir) if f.endswith(".obj")]
     obj_files = [('mesh', open(path, 'rb')) for path in mesh_paths]
+    view_paths = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith("view") and f.endswith(".npy")]
+    view_files = [('view', open(path, 'rb')) for path in view_paths]
     config_file = ('config', open(config_filename, 'rb'))
 
+    print(f"View files: {view_files}")
     # Send the request
     try:
-        response = requests.post(SERVER_URL + "/process_sequence", files=obj_files + [config_file])
+        response = requests.post(SERVER_URL + "/process_sequence", files=obj_files + view_files + [config_file])
         response.raise_for_status()
 
         if response.status_code == 200:
@@ -103,8 +106,8 @@ def send_minimal_data(context, mesh_dir, prompt, inference_steps):
     finally:
         # Ensure all files are closed after the request
         config_file[1].close()
-        for file in obj_files.values():
-            file.close()
+        for file in obj_files + view_files:
+            file[1].close()
             
 def send_all_data(context, mesh_dir, prompt, inference_steps):
     """ Send the mesh files, text prompt, inference steps, as well as view files and depth images to the server."""

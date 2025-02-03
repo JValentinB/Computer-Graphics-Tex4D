@@ -19,6 +19,9 @@ from pytorch3d.renderer import (
 	TexturesUV
 )
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 from .geometry import HardGeometryShader
 from .shader import HardNChannelFlatShader
 from .voronoi import voronoi_solve
@@ -232,19 +235,58 @@ class UVProjection():
 		elev = torch.FloatTensor([pose[0] for pose in camera_poses])
 		azim = torch.FloatTensor([pose[1] for pose in camera_poses])
 		R, T = look_at_view_transform(dist=camera_distance, elev=elev, azim=azim, at=centers or ((0,0,0),))
-		self.cameras = FoVOrthographicCameras(device=self.device, R=R, T=T, scale_xyz=scale or ((1,1,1),))
-  
-	def set_cameras_alternative(self, camera_matrices, scale=None):
-		R = torch.stack([torch.tensor(mat[:3, :3]) for mat in camera_matrices], dim=0)  # Extract 3x3 rotation
-		T = torch.stack([torch.tensor(mat[:3, 3]) for mat in camera_matrices], dim=0)  # Extract translation vector
 
+		# print(f"R: {R}, T: {T}")
+		# self.visualize_camera_poses(R, T)
 		self.cameras = FoVOrthographicCameras(device=self.device, R=R, T=T, scale_xyz=scale or ((1,1,1),))
+		
+	def set_cameras_matrices(self, camera_matrices, scale=None):
+		S = torch.tensor([
+			[1, 0, 0, 0],
+			[0, 0, 1, 0],
+			[0, -1, 0, 0],
+			[0, 0, 0, 1]
+    	], dtype=torch.float64, device=self.device) 
+		R_y_180 = torch.tensor([
+			[-1,  0,  0,  0],
+			[ 0, 1,  0,  0],
+			[ 0,  0, -1,  0],
+			[ 0,  0,  0,  1]
+		], dtype=torch.float64, device=self.device)
 
+		
+		# Convert each matrix from Blender's system to PyTorch3D's system
+		fixed_matrices = [R_y_180 @ S @ torch.tensor(mat, dtype=torch.float64, device=self.device) for mat in camera_matrices]
+
+		# Extract corrected R (rotation) and T (translation)
+		R = torch.stack([mat[:3, :3] for mat in fixed_matrices], dim=0)  # 3x3 rotation
+		# T = torch.stack([mat[:3, 3] for mat in fixed_matrices], dim=0)    # 3D translation
+
+		# place all camera at 0,0,4
+		T = torch.stack([torch.tensor([0,0,4], dtype=torch.float64, device=self.device) for mat in fixed_matrices], dim=0)
+		self.cameras = FoVOrthographicCameras(device=self.device, R=R, T=T, scale_xyz=scale or ((1,1,1),))
 
 	# Set all necessary internal data for rendering and texture baking
 	# Can be used to refresh after changing camera positions
 	def set_cameras_and_render_settings(self, camera_poses, centers=None, camera_distance=2.7, render_size=None, scale=None):
 		self.set_cameras(camera_poses, centers, camera_distance, scale=scale)
+
+		if render_size is None:
+			render_size = self.render_size
+		if not hasattr(self, "renderer"):
+			self.setup_renderer(size=render_size)
+		if not hasattr(self, "mesh_d"):
+			self.disconnect_faces()
+		if not hasattr(self, "mesh_uv"):
+			self.construct_uv_mesh()
+		self.calculate_tex_gradient()
+		self.calculate_visible_triangle_mask()
+		_, _, _, cos_maps, _, _= self.render_geometry()
+		self.calculate_cos_angle_weights(cos_maps)
+  
+	def set_cameras_and_render_settings_matrices(self, camera_matrices, render_size=None, scale=None):
+		self.set_cameras_matrices(camera_matrices, scale=scale)
+
 		if render_size is None:
 			render_size = self.render_size
 		if not hasattr(self, "renderer"):
@@ -295,6 +337,7 @@ class UVProjection():
 	# May be able to reimplement using the generic "bake_texture" function, but it works so leave it here for now
 	@torch.enable_grad()
 	def calculate_cos_angle_weights(self, cos_angles, fill=True, channels=None):
+		
 		if not channels:
 			channels = self.channels
 		cos_maps_list = []
@@ -314,7 +357,6 @@ class UVProjection():
 				loss = torch.sum((cos_angles[index][i,:,:,0:1]**1 - images_predicted)**2)
 				loss.backward()
 				optimizer.step()
-
 				if fill:
 					zero_map = zero_map.detach() / (self.gradient_maps[index][i] + 1E-8)
 					zero_map = voronoi_solve(zero_map, self.gradient_maps[index][i][...,0])
@@ -419,6 +461,9 @@ class UVProjection():
 				optimizer.step()
 
 				gradient_map.append(zero_map.detach())
+
+				# plt.imshow(gradient_map[i].detach().cpu().numpy())
+				# plt.show()
 			gradient_maps.append(gradient_map)
 		self.gradient_maps = gradient_maps
 

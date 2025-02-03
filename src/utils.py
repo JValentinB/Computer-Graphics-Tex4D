@@ -5,6 +5,8 @@ import random
 import torch
 from torchvision.transforms import Resize, InterpolationMode
 
+from scipy.spatial.transform import Rotation
+
 
 '''
 	Encoding and decoding functions similar to diffusers library implementation
@@ -64,5 +66,12 @@ def get_rgb_texture(vae, uvp_rgb, latents):
 	for result_tex_rgb_tmp in result_tex_rgb:
 		result_tex_rgb_list.extend(result_tex_rgb_tmp.permute(1,2,0).cpu()[None,...])
 	return result_tex_rgb_list, result_tex_rgb
+
+
+def rotation_matrix_to_tilt_azim(R):
+    # Convert rotation matrix to Euler angles
+    r = Rotation.from_matrix(R)  # Corrected call
+    tilt, azim, _ = r.as_euler('yxz', degrees=True)  # Y (azim), X (tilt)
+    return tilt, azim
 
 

@@ -91,7 +91,7 @@ def process():
 
     # Process the mesh using preloaded models and user-provided prompt
     try:
-        print("Starting SyncMVD...")
+        print("Starting Tex4D...")
         process_mesh_with_preloaded_models(pipe, upload_path, output_path, prompt, steps, send_progress_update)
         
         results_dir = os.path.join(os.path.dirname(output_path), 'results')
@@ -128,49 +128,47 @@ def process():
     # # Return the textured mesh
     # return send_file(output_path, as_attachment=True)
     
-@app.route('/process_animated', methods=['POST'])
-def process_animated():
-    print("Received an animated mesh!\n")
+# @app.route('/process_animated', methods=['POST'])
+# def process_animated():
+#     print("Received an animated mesh!\n")
 
-    # Extract prompt and inference steps
-    prompt = request.form.get("prompt", "No prompt provided")
-    inference_steps = int(request.form.get("inference_steps", 1))
+#     # Extract prompt and inference steps
+#     prompt = request.form.get("prompt", "No prompt provided")
+#     inference_steps = int(request.form.get("inference_steps", 1))
 
-    # Initialize storage for different file types
-    meshes = {}
-    depths = {}
-    views = {}
+#     # Initialize storage for different file types
+#     meshes = {}
+#     depths = {}
+#     views = {}
 
-    # Process uploaded files
-    for key, file in request.files.items():
-        print(f"Processing file: {key}")
-        if key.startswith("mesh_"):
-            keyframe = int(key.split("_")[1])  # Extract keyframe
-            meshes[keyframe] = file.read()  # Read mesh content as bytes
+#     # Process uploaded files
+#     for key, file in request.files.items():
+#         print(f"Processing file: {key}")
+#         if key.startswith("mesh_"):
+#             keyframe = int(key.split("_")[1])  # Extract keyframe
+#             meshes[keyframe] = file.read()  # Read mesh content as bytes
         
-        elif key.startswith("depth_"):
-            parts = key.split("_")  # Format: depth_{view}_{keyframe}
-            view, keyframe = int(parts[1]), int(parts[2])
-            depths[(view, keyframe)] = file.read()  # Read depth image as bytes
+#         elif key.startswith("depth_"):
+#             parts = key.split("_")  # Format: depth_{view}_{keyframe}
+#             view, keyframe = int(parts[1]), int(parts[2])
+#             depths[(view, keyframe)] = file.read()  # Read depth image as bytes
         
-        elif key.startswith("view_"):
-            view = int(key.split("_")[1])  # Extract view number
-            views[view] = np.load(file)  # Load .npy file directly into an array
+#         elif key.startswith("view_"):
+#             view = int(key.split("_")[1])  # Extract view number
+#             views[view] = np.load(file)  # Load .npy file directly into an array
 
-    print(f"View matrices: {views}\n")
+#     print(f"View matrices: {views}\n")
 
-    return jsonify({
-        "result": "success",
-        "mesh_count": len(meshes),
-        "depth_count": len(depths),
-        "view_count": len(views),
-    })
+#     return jsonify({
+#         "result": "success",
+#         "mesh_count": len(meshes),
+#         "depth_count": len(depths),
+#         "view_count": len(views),
+#     })
     
 @app.route('/process_sequence', methods=['POST'])
 def process_sequence():
     print("Received meshes!\n")
-    print(request)
-    print(request.files)
     temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(uuid.uuid4()))
     os.makedirs(temp_dir)
 
@@ -203,6 +201,12 @@ def process_sequence():
         else:
             return jsonify({"error": f"File {obj_file.filename} is not a valid .obj file"}), 400
 
+    view_files = request.files.getlist('view')
+    view_matrices = []
+    if view_files:
+        for view_file in view_files:
+            view_matrices.append(np.load(view_file))
+            
     # Load the YAML file
     try:
         with open(config_path, 'r') as yaml_file:
@@ -218,10 +222,10 @@ def process_sequence():
         socketio.emit('progress_update', {'progress': progress})
 
     try:
-        print("Starting SyncMVD...")
+        print("Starting Tex4D...")
         prompt = config_data.get('prompt', 'Default prompt')
         steps = config_data.get('steps', 20)
-        process_mesh_with_preloaded_models(pipe, obj_folder, output_path, prompt, steps, send_progress_update)
+        process_mesh_with_preloaded_models(pipe, obj_folder, output_path, prompt, steps, send_progress_update, view_matrices)
         
         results_dir = os.path.join(os.path.dirname(output_path), 'results')
     
