@@ -20,36 +20,45 @@ def process_mesh_with_preloaded_models(
         # Initialize StableSyncMVDPipeline with preloaded components
         syncmvd = StableSyncMVDPipeline(**pipe.components)
 
-        # Example options (adjust based on your configuration)
+        # Default options
         opt = {
-            'latent_view_size': 64,
-            'guidance_scale': 7.5,
-            'negative_prompt': 'distorted, disfigured, disconnected limbs, ugly, blurry, low resolution, motionless, static, disfigured, disconnected limbs, ugly faces, incomplete arms',
-            'seed': 42,
+            'seed': 1,
+            'guidance_scale': 15.5,
             'guess_mode': False,
-            'conditioning_scale': 1.0,
-            'conditioning_scale_end': 1.0,
+            'conditioning_scale': 0.7,                                                                                                                          
+            'conditioning_scale_end': 0.9,
             'control_guidance_start': 0.0,
-            'control_guidance_end': 1.0,
+            'control_guidance_end': 0.99,                                                                                                       
             'guidance_rescale': 0.0,
-            'mesh_scale': 1.0,
-            'camera_azims': [0, 90, 180, 270],
-            'latent_tex_size': 128,
-            'rgb_view_size': 256,
-            'rgb_tex_size': 512,
+            'latent_view_size': 96,
+            'latent_tex_size': 512,
+            'rgb_view_size': 1536,
+            'rgb_tex_size': 1024,
+            'camera_azims': [-180, -120, -60, 0, 60, 120],
+            'no_top_cameras': False,
             'mvd_end': 0.8,
-            'mvd_exp_start': 0.2,
-            'mvd_exp_end': 1.0,
-            'ref_attention_end': 0.9,
-            'shuffle_bg_change': False,
-            'shuffle_bg_end': 1.0,
+            'mvd_exp_start': 0.0,
+            'mvd_exp_end': 6.0,
+            'ref_attention_end': 0.2,
+            'shuffle_bg_change': 0.4,                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+            'shuffle_bg_end': 0.8,
+            'mesh_scale': 1.0,
+            'keep_mesh_uv': False,
         }
         #opt = parse_config()
+        logging_config = {
+	    "output_dir": os.path.dirname(output_path), 
+	    # "output_name":None, 
+	    "intermediate": False, 
+	    "log_interval": 10,
+	    "view_fast_preview": True,
+	    "tex_fast_preview": True,
+	    }
 
         # Process the mesh with the user-provided prompt
         print(f"Running SyncMVD with mesh: {mesh_path} and prompt: {prompt}")
         result_tex_rgb = syncmvd(  #result_tex_rgb, textured_views, v = syncmvd(
-            prompt=prompt,  # Use the prompt provided by the client
+            prompt=prompt,  # Use the prompt provided by the client                                                 
             height=opt['latent_view_size'] * 8,
             width=opt['latent_view_size'] * 8,
             num_inference_steps=inference_steps,
@@ -71,7 +80,7 @@ def process_mesh_with_preloaded_models(
             mesh_autouv=False,
             
             camera_azims=opt['camera_azims'],
-            top_cameras=True,
+            top_cameras= not opt['no_top_cameras'],
             texture_size=opt['latent_tex_size'],
             render_rgb_size=opt['rgb_view_size'],
             texture_rgb_size=opt['rgb_tex_size'],
@@ -81,9 +90,8 @@ def process_mesh_with_preloaded_models(
             ref_attention_end=opt['ref_attention_end'],
             shuffle_background_change=opt['shuffle_bg_change'],
             shuffle_background_end=opt['shuffle_bg_end'],
-            logging_config={"output_dir": os.path.dirname(output_path)},
-            cond_type='depth',  # Adjust based on your logic
-            
+            logging_config=logging_config,
+            cond_type='depth',  
             progress_callback=progress_callback,
         )
         print("Finished SyncMVD.")
