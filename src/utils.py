@@ -5,7 +5,6 @@ import random
 import torch
 from torchvision.transforms import Resize, InterpolationMode
 
-from scipy.spatial.transform import Rotation
 
 
 '''
@@ -70,8 +69,8 @@ def get_rgb_texture(vae, uvp_rgb, latents):
 
 def rotation_matrix_to_tilt_azim(R):
     # Convert rotation matrix to Euler angles
-    r = Rotation.from_matrix(R)  # Corrected call
-    tilt, azim, _ = r.as_euler('yxz', degrees=True)  # Y (azim), X (tilt)
-    return tilt, azim
+    # r = Rotation.from_matrix(R)  # Corrected call
+    # tilt, azim, _ = r.as_euler('yxz', degrees=True)  # Y (azim), X (tilt)
+    return 0, 0
 
 

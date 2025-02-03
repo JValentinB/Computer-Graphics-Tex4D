@@ -19,9 +19,6 @@ from pytorch3d.renderer import (
 	TexturesUV
 )
 
-import matplotlib.pyplot as plt
-import numpy as np
-
 from .geometry import HardGeometryShader
 from .shader import HardNChannelFlatShader
 from .voronoi import voronoi_solve
@@ -462,8 +459,6 @@ class UVProjection():
 
 				gradient_map.append(zero_map.detach())
 
-				# plt.imshow(gradient_map[i].detach().cpu().numpy())
-				# plt.show()
 			gradient_maps.append(gradient_map)
 		self.gradient_maps = gradient_maps
 
