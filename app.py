@@ -247,6 +247,7 @@ def process_sequence():
         return jsonify({'error': str(e)}), 500
 
     finally:
+        send_progress_update(1)
         # Delete the temporary directory and its contents after processing is complete
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)

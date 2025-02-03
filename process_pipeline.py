@@ -23,6 +23,7 @@ def process_mesh_with_preloaded_models(
         # Default options
         opt = {
             'seed': 1,
+            'negative_prompt': 'oversmoothed, blurry, depth of field, out of focus, low quality, bloom, glowing effect.',
             'guidance_scale': 15.5,
             'guess_mode': False,
             'conditioning_scale': 0.7,                                                                                                                          
