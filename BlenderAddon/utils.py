@@ -131,7 +131,7 @@ def export_uv_maps(self, context, output_directory):
 def export_depth_images(self, context, output_directory):
     scene = context.scene
     obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
-    scene.depth_progress = 0.0
+    # scene.depth_progress = 0.0
     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
     # Ensure there is a selected object
@@ -161,13 +161,13 @@ def export_depth_images(self, context, output_directory):
         for keyframe in keyframes:
             # Update progress
             current_render += 1
-            scene.depth_progress = current_render / total_renders
+            # scene.depth_progress = current_render / total_renders
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
             scene.frame_set(keyframe)
             render_depth(self, camera, keyframe, camera_index, output_directory)
 
-    scene.depth_progress = 0.0
+    # scene.depth_progress = 0.0
     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
             
 def render_depth(self, camera, keyframe, view_number, output_directory):

@@ -200,13 +200,7 @@ def process_sequence():
             obj_file.save(obj_path)
         else:
             return jsonify({"error": f"File {obj_file.filename} is not a valid .obj file"}), 400
-
-    view_files = request.files.getlist('view')
-    view_matrices = []
-    if view_files:
-        for view_file in view_files:
-            view_matrices.append(np.load(view_file))
-            
+    
     # Load the YAML file
     try:
         with open(config_path, 'r') as yaml_file:
@@ -214,9 +208,27 @@ def process_sequence():
     except yaml.YAMLError as e:
         return jsonify({"error": f"Error parsing YAML file: {str(e)}"}), 400
 
+    # Get the view_matrices file
+    if 'view_matrices' not in request.files:
+        return jsonify({"error": "Missing view_matrices in the request"}), 400
+
+    view_matrices_file = request.files['view_matrices']
+    if not view_matrices_file.filename.endswith('.npy'):
+        return jsonify({"error": "view_matrices file must be a .npy file"}), 400
+
+    # Save the view_matrices file to the temporary directory
+    view_matrices_path = os.path.join(temp_dir, 'view_matrices.npy')
+    view_matrices_file.save(view_matrices_path)
+
+    # Load the view_matrices from the .npy file
+    try:
+        view_matrices = np.load(view_matrices_path)
+    except Exception as e:
+        return jsonify({"error": f"Error loading view_matrices: {str(e)}"}), 400
+
     # Define output path for the texture
     output_path = os.path.join(app.config['OUTPUT_FOLDER'], f'texture.png')
-    
+
     def send_progress_update(progress):
         print(f"___Sending progress: {progress * 100}%")
         socketio.emit('progress_update', {'progress': progress})
@@ -244,7 +256,7 @@ def process_sequence():
         if not os.path.exists(results_dir):
             return {"error": "Results directory not found"}, 404
     
-        files_to_zip = [f for f in os.listdir(results_dir) if os.path.splitext(f)[1] in{".obj", ".mtl", ".png"}]
+        files_to_zip = [f for f in os.listdir(results_dir) if os.path.splitext(f)[1] in {".obj", ".mtl", ".png"}]
     
         if not files_to_zip:
             return {"error": "No valid files found in results directory"}, 404

@@ -40,18 +40,17 @@ class Tex4DPanel(bpy.types.Panel):
         box1.separator()
 
         box1.prop(scene, "num_keyframes")
-        box1.prop(scene, "output_directory")
+        # box1.prop(scene, "output_directory")
 
-        if scene.depth_progress > 0.0:
-            box1.progress(text=f"Depth Images Progress: {(scene.depth_progress * 100):.0f}%", factor=scene.depth_progress, type='BAR')
-        else:
-            box1.operator("object.export_data", text="Generate Input Data")
+        # if scene.depth_progress > 0.0:
+        #     box1.progress(text=f"Depth Images Progress: {(scene.depth_progress * 100):.0f}%", factor=scene.depth_progress, type='BAR')
+        # else:
+        #     box1.operator("object.export_data", text="Generate Input Data")
 
         layout.separator()
         layout.separator()
 
         box2 = layout.box()  # Create a boxed section
-        box2.prop(scene, "image_sequence")
         box2.prop(scene, "inference_steps")
         box2.prop(scene, "latent_tex_size")
         box2.prop(scene, "rgb_tex_size")
@@ -62,6 +61,8 @@ class Tex4DPanel(bpy.types.Panel):
         if (scene.model_progress > 0.0):
             box2.progress(text=f"Model Progress: {(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
             box2.operator("object.cancel", text="Cancel", icon='CANCEL')
+        elif scene.is_connecting:
+            box2.operator("object.tex4d_start", text="Connecting...")
         else: 
             box2.operator("object.tex4d_start", text="Generate")
         
@@ -114,14 +115,16 @@ class Tex4DStartOperator(bpy.types.Operator):
         scene = context.scene
         scene.model_progress = 0.0
         
-        if not scene.is_input_generated:
-            self.report({'ERROR'}, "Input data not generated. Please generate input data first.")
-            return {'CANCELLED'}
+        # if not scene.is_input_generated:
+        #     self.report({'ERROR'}, "Input data not generated. Please generate input data first.")
+        #     return {'CANCELLED'}
         
         obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
         if obj is None or obj.type != 'MESH':
             self.report({'ERROR'}, "No mesh object selected.")
             return {'CANCELLED'}
+        
+        view_matrices = get_view_matrices(self, context)
         
         # Print prompt text to console
         prompt = scene.prompt
@@ -129,25 +132,21 @@ class Tex4DStartOperator(bpy.types.Operator):
                 
         scene.temp_dir = bpy.app.tempdir
 
-        if(scene.image_sequence):
-            mesh_dir = scene.temp_dir
-            export_animated_mesh(obj, mesh_dir)
-            print(f"Mesh exported to {mesh_dir}")
-        
-            steps = scene.inference_steps
-            # Send the mesh and text prompt to the server
-            send_meshes_and_prompt(context, mesh_dir, prompt, steps, scene.latent_tex_size, scene.rgb_tex_size)
-
-        else: 
-            mesh_path = os.path.join(scene.temp_dir, "mesh.obj")
-        
-            # Export the active mesh
-            if export_active_mesh(obj, mesh_path):
-                print(f"Mesh exported to {mesh_path}")
-            
-                steps = scene.inference_steps
-                # Send the mesh and text prompt to the server
-                send_meshes_and_prompt(context, mesh_path, prompt, steps, scene.latent_tex_size, scene.rgb_tex_size)
+        mesh_dir = scene.temp_dir
+        export_animated_mesh(obj, mesh_dir)
+        print(f"Mesh exported to {mesh_dir}")
+    
+        steps = scene.inference_steps
+        # Send the mesh and text prompt to the server
+        send_meshes_and_prompt(
+            context, 
+            mesh_dir, 
+            prompt, 
+            steps, 
+            scene.latent_tex_size, 
+            scene.rgb_tex_size, 
+            view_matrices
+        )
         return {'FINISHED'}
     
 class ApplyTextureOperator(bpy.types.Operator):
@@ -269,26 +268,22 @@ def register():
         min=64, max=2048
     )
 
-    bpy.types.Scene.image_sequence = bpy.props.BoolProperty(
-        name="Image Sequence",
-        description="Wether to generate a single texture or texture sequence",
-        default=False
-    )
     bpy.types.Scene.temp_dir = bpy.props.StringProperty(name="Temp Dir", default="", subtype='DIR_PATH')
     
 
 
 
     # Depth images progress bar
-    bpy.types.Scene.depth_progress = bpy.props.FloatProperty(
-        name="Depth Images Progress",
-        description="Progress of depth image export",
-        default=0.0,
-        min=0.0,
-        max=1.0,
-        subtype='PERCENTAGE'
-    )
+    # bpy.types.Scene.depth_progress = bpy.props.FloatProperty(
+    #     name="Depth Images Progress",
+    #     description="Progress of depth image export",
+    #     default=0.0,
+    #     min=0.0,
+    #     max=1.0,
+    #     subtype='PERCENTAGE'
+    # )
     # Model progress bar
+    bpy.types.Scene.is_connecting = bpy.props.BoolProperty(name="Is Connecting", default=False)
     bpy.types.Scene.model_progress = bpy.props.FloatProperty(
         name="Model Progress",
         description="Progress of model export",
@@ -327,11 +322,10 @@ def unregister():
     
     del bpy.types.Scene.num_keyframes
     del bpy.types.Scene.inference_steps
-    del bpy.types.Scene.image_sequence
     del bpy.types.Scene.latent_tex_size
     del bpy.types.Scene.rgb_tex_size
 
-    del bpy.types.Scene.depth_progress
+    # del bpy.types.Scene.depth_progress
     del bpy.types.Scene.model_progress
     del bpy.types.Scene.is_input_generated
     del bpy.types.Scene.is_texture_generated

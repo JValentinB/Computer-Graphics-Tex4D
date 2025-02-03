@@ -58,42 +58,45 @@ def send_single_mesh(mesh_path, prompt, inference_steps, keyframe=0):
         for file in files.values():
             file[1].close()
 
-def send_minimal_data(context, mesh_dir, prompt, inference_steps, latent_tex_size, rgb_tex_size):
+def send_minimal_data(context, mesh_dir, prompt, inference_steps, latent_tex_size, rgb_tex_size, view_matrices):
     """ Send the mesh files and config file to the server."""
     output_dir = context.scene.output_directory
 
     config_dict = {
-    'mesh': 'mesh',
-    'mesh_config_relative': True,
-    'use_mesh_name' : False,
-    'prompt': prompt,
-    'steps': inference_steps,
-    'cond_type': "depth",
-    'seed' : 1,
-    'mesh_scale' : 1,
-    'tex_fast_preview': True,
-    'view_fast_preview' :  True, 
-    'latent_tex_size': latent_tex_size,
-    'rgb_tex_size': rgb_tex_size
-   }
+        'mesh': 'mesh',
+        'mesh_config_relative': True,
+        'use_mesh_name' : False,
+        'prompt': prompt,
+        'steps': inference_steps,
+        'cond_type': "depth",
+        'seed' : 1,
+        'mesh_scale' : 1,
+        'tex_fast_preview': True,
+        'view_fast_preview' :  True, 
+        'latent_tex_size': latent_tex_size,
+        'rgb_tex_size': rgb_tex_size
+    }
     config_filename = os.path.join(mesh_dir, "config.yaml")
 
     # Save the config dictionary to the YAML file
     with open(config_filename, 'w') as config_file:
         yaml.dump(config_dict, config_file)
 
-    
     # Open mesh files
     mesh_paths = [os.path.join(mesh_dir, f) for f in os.listdir(mesh_dir) if f.endswith(".obj")]
     obj_files = [('mesh', open(path, 'rb')) for path in mesh_paths]
-    view_paths = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith("view") and f.endswith(".npy")]
-    view_files = [('view', open(path, 'rb')) for path in view_paths]
     config_file = ('config', open(config_filename, 'rb'))
 
-    print(f"View files: {view_files}")
+    # Save the view_matrices to a temporary .npy file within the mesh_dir
+    view_file_path = os.path.join(mesh_dir, 'view_matrices.npy')
+    np.save(view_file_path, view_matrices)
+
+    # Open the .npy file for view_matrices
+    view_file = ('view_matrices', open(view_file_path, 'rb'))
+
     # Send the request
     try:
-        response = requests.post(SERVER_URL + "/process_sequence", files=obj_files + view_files + [config_file])
+        response = requests.post(SERVER_URL + "/process_sequence", files=obj_files + [config_file, view_file])
         response.raise_for_status()
 
         if response.status_code == 200:
@@ -108,23 +111,33 @@ def send_minimal_data(context, mesh_dir, prompt, inference_steps, latent_tex_siz
     finally:
         # Ensure all files are closed after the request
         config_file[1].close()
-        for file in obj_files + view_files:
+        for file in obj_files:
             file[1].close()
+        view_file[1].close()
+        os.remove(view_file_path)  # Clean up the temporary .npy file
             
     
 
-def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps, latent_tex_size, rgb_tex_size):
+def send_meshes_and_prompt(
+        context, 
+        mesh_path, 
+        prompt="", 
+        inference_steps=1, 
+        latent_tex_size=512, 
+        rgb_tex_size=512,
+        view_matrices=None
+    ):
     scene = context.scene
 
+    def redraw_ui():
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            return None  # Returning None stops the timer
+    
     def handle_progress_update(data):
+        scene.is_connecting = False
         # scene = bpy.context.scene  # Ensure you get the correct scene
         progress = data.get('progress', 0)  
         scene.model_progress = progress
-
-        # Use bpy.app.timers to schedule a redraw on the main thread
-        def redraw_ui():
-            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-            return None  # Returning None stops the timer
         
         if progress >= 1.0:
             sio.disconnect()
@@ -139,29 +152,13 @@ def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps, latent_t
         sio.disconnect()
     sio.connect(SERVER_URL, wait_timeout=120)
     
+    scene.is_connecting = True
+    redraw_ui()
     
     """Send the mesh files to the server."""
     def task():
         try:
-            if bpy.context.scene.image_sequence:
-                # for filename in os.listdir(mesh_path):
-                #     if filename.endswith('.obj'):
-                #         file_path = os.path.join(mesh_path, filename)
-                #         keyframe = extract_keyframe_number(filename)
-                #         send_single_mesh(file_path, prompt, inference_steps, keyframe)
-
-                # texture_paths = [file for file in os.listdir(mesh_path) if file.endswith('.png')]
-                # current_frame = bpy.context.scene.frame_current
-                # total_frames = bpy.context.scene.frame_end
-
-                # material = bpy.context.active_object.active_material
-                # setup_texture_interpolation(material, texture_paths, current_frame, total_frames)
-                # bpy.app.handlers.frame_change_post.append(update_switch_factor)
-
-                send_minimal_data(bpy.context, mesh_path, prompt, inference_steps, latent_tex_size, rgb_tex_size)
-            else:
-                # Prepare the files to send
-                send_single_mesh(mesh_path, prompt, inference_steps)
+            send_minimal_data(bpy.context, mesh_path, prompt, inference_steps, latent_tex_size, rgb_tex_size, view_matrices)
         except Exception as e:
             print("Error processing data:", e)
 

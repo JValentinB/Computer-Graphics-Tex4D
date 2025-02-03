@@ -91,3 +91,18 @@ def get_or_create_collection(name):
     collection = bpy.data.collections.new(name)
     bpy.context.scene.collection.children.link(collection)
     return collection
+
+def get_view_matrices(self, context):
+    camera_collection = get_or_create_collection("Camera_Views")
+    cameras = list(camera_collection.objects)
+    if not cameras:
+        self.report({'ERROR'}, "No cameras found in the Camera_Views collection.")
+        return
+    
+    view_matrices = []
+    for camera in cameras:
+        # Convert matrix_world to numpy array and append it
+        view_matrices.append(np.array(camera.matrix_world))
+    
+    # Convert the list of matrices into a numpy array (if you want it as a 3D array)
+    return np.array(view_matrices)
