@@ -40,7 +40,6 @@ class Tex4DPanel(bpy.types.Panel):
         box1.separator()
 
         box1.prop(scene, "num_keyframes")
-        # box1.prop(scene, "output_directory")
 
         # if scene.depth_progress > 0.0:
         #     box1.progress(text=f"Depth Images Progress: {(scene.depth_progress * 100):.0f}%", factor=scene.depth_progress, type='BAR')
@@ -57,7 +56,7 @@ class Tex4DPanel(bpy.types.Panel):
         col = box2.column(align=True)  # Create a column to reduce spacing
         col.label(text="Prompt")
         col.prop(scene, "prompt", text="")
-        
+        box2.prop(scene, "output_directory")
         if (scene.model_progress > 0.0):
             box2.progress(text=f"Model Progress: {(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
             box2.operator("object.cancel", text="Cancel", icon='CANCEL')
