@@ -225,7 +225,19 @@ def process_sequence():
         print("Starting Tex4D...")
         prompt = config_data.get('prompt', 'Default prompt')
         steps = config_data.get('steps', 20)
-        process_mesh_with_preloaded_models(pipe, obj_folder, output_path, prompt, steps, send_progress_update, view_matrices)
+        latent_tex_size = config_data.get('latent_tex_size', 512)
+        rgb_tex_size = config_data.get('rgb_tex_size', 512)
+        process_mesh_with_preloaded_models(
+            pipe, 
+            obj_folder, 
+            output_path, 
+            prompt, 
+            steps,
+            latent_tex_size,
+            rgb_tex_size,
+            send_progress_update, 
+            view_matrices
+        )
         
         results_dir = os.path.join(os.path.dirname(output_path), 'results')
     

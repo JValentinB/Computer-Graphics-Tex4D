@@ -14,6 +14,8 @@ def process_mesh_with_preloaded_models(
         output_path: str, 
         prompt: str = "", 
         inference_steps: int = 10,
+        latent_tex_size: int = 512,
+        rgb_tex_size: int = 1024,
         progress_callback=None,
         view_matrices=None
     ):
@@ -33,9 +35,9 @@ def process_mesh_with_preloaded_models(
             'control_guidance_end': 0.99,                                                                                                       
             'guidance_rescale': 0.0,
             'latent_view_size': 96,
-            'latent_tex_size': 512,
+            'latent_tex_size': latent_tex_size,
             'rgb_view_size': 1536,
-            'rgb_tex_size': 1024,
+            'rgb_tex_size': rgb_tex_size,
             'camera_azims': [-180, -120, -60, 0, 60, 120],
             'no_top_cameras': False,
             'mvd_end': 0.8,

@@ -58,7 +58,7 @@ def send_single_mesh(mesh_path, prompt, inference_steps, keyframe=0):
         for file in files.values():
             file[1].close()
 
-def send_minimal_data(context, mesh_dir, prompt, inference_steps):
+def send_minimal_data(context, mesh_dir, prompt, inference_steps, latent_tex_size, rgb_tex_size):
     """ Send the mesh files and config file to the server."""
     output_dir = context.scene.output_directory
 
@@ -72,7 +72,9 @@ def send_minimal_data(context, mesh_dir, prompt, inference_steps):
     'seed' : 1,
     'mesh_scale' : 1,
     'tex_fast_preview': True,
-    'view_fast_preview' :  True
+    'view_fast_preview' :  True, 
+    'latent_tex_size': latent_tex_size,
+    'rgb_tex_size': rgb_tex_size
    }
     config_filename = os.path.join(mesh_dir, "config.yaml")
 
@@ -109,68 +111,9 @@ def send_minimal_data(context, mesh_dir, prompt, inference_steps):
         for file in obj_files + view_files:
             file[1].close()
             
-def send_all_data(context, mesh_dir, prompt, inference_steps):
-    """ Send the mesh files, text prompt, inference steps, as well as view files and depth images to the server."""
-    output_dir = context.scene.output_directory
-    
-    files = {}
-    data = {'prompt': prompt, 'inference_steps': inference_steps}
-    
-    # Open mesh files
-    mesh_paths = [os.path.join(mesh_dir, f) for f in os.listdir(mesh_dir) if f.endswith(".obj")]
-    for mesh_path in mesh_paths:
-        filename = os.path.basename(mesh_path)
-        match = re.search(r"mesh_(\d+)\.obj", filename)
-        if match:
-            keyframe = int(match.group(1))
-        else:
-            print(f"Warning: Could not parse keyframe from {filename}")
-            continue
-
-        files[f"mesh_{keyframe}"] = open(mesh_path, 'rb')  # Keep file open
-    
-    # Open depth images
-    depth_paths = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.endswith(".png")]
-    for depth_path in depth_paths:
-        filename = os.path.basename(depth_path)
-        match = re.search(r"view_(\d+)_keyframe_(\d+)\.png", filename)
-        if match:
-            view = int(match.group(1))
-            keyframe = int(match.group(2))
-        else:
-            print(f"Warning: Could not parse keyframe from {filename}")
-            continue
-
-        files[f"depth_{view}_{keyframe}"] = open(depth_path, 'rb')
-    
-    # Open view matrices
-    view_paths = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith("view_") and f.endswith(".npy")]
-    for view_path in view_paths:
-        filename = os.path.basename(view_path)
-        match = re.search(r"view_(\d+)\.npy", filename)
-        if match:
-            view = int(match.group(1))
-        else:
-            print(f"Warning: Could not parse view number from {filename}")
-            continue
-
-        files[f"view_{view}"] = open(view_path, 'rb')
-
-    # Send the request
-    try:
-        response = requests.post(SERVER_URL + "/process_animated", files=files, data=data)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print("Error communicating with server:", e)
-    finally:
-        # Ensure all files are closed after the request
-        for file in files.values():
-            file.close()
-
-
     
 
-def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps):
+def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps, latent_tex_size, rgb_tex_size):
     scene = context.scene
 
     def handle_progress_update(data):
@@ -215,8 +158,7 @@ def send_meshes_and_prompt(context, mesh_path, prompt, inference_steps):
                 # setup_texture_interpolation(material, texture_paths, current_frame, total_frames)
                 # bpy.app.handlers.frame_change_post.append(update_switch_factor)
 
-                send_minimal_data(bpy.context, mesh_path, prompt, inference_steps)
-                #send_all_data(bpy.context, mesh_path, prompt, inference_steps)
+                send_minimal_data(bpy.context, mesh_path, prompt, inference_steps, latent_tex_size, rgb_tex_size)
             else:
                 # Prepare the files to send
                 send_single_mesh(mesh_path, prompt, inference_steps)

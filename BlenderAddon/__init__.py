@@ -28,37 +28,45 @@ class Tex4DPanel(bpy.types.Panel):
         layout.prop(scene, "selected_object", text="Object")
         layout.separator()
         layout.separator()
-        
-        layout.prop(scene, "view_count")
-        layout.prop(scene, "distance")
-        # layout.prop(scene, "scale")
 
-        col = layout.column(align=True)  # Ensures rows are tightly packed
+        box1 = layout.box()  # Create a boxed section
+        box1.prop(scene, "view_count")
+        box1.prop(scene, "distance")
+        # box1.prop(scene, "scale")
+
+        col = box1.column(align=True)  # Ensures rows are tightly packed
         col.prop(scene, "coverage_top")
         col.prop(scene, "coverage_bottom")
-        layout.separator()
-        
-        layout.prop(scene, "num_keyframes")
-        layout.prop(scene, "output_directory")
-        if (scene.depth_progress > 0.0):
-            layout.progress(text=f"Depth Images Progress: {(scene.depth_progress*100):.0f}%", factor=scene.depth_progress, type='BAR')
+        box1.separator()
+
+        box1.prop(scene, "num_keyframes")
+        box1.prop(scene, "output_directory")
+
+        if scene.depth_progress > 0.0:
+            box1.progress(text=f"Depth Images Progress: {(scene.depth_progress * 100):.0f}%", factor=scene.depth_progress, type='BAR')
         else:
-            layout.operator("object.export_data", text="Generate Input Data")
-        
+            box1.operator("object.export_data", text="Generate Input Data")
+
         layout.separator()
         layout.separator()
-        layout.prop(scene, "image_sequence")
-        layout.prop(scene, "inference_steps")
-        layout.prop(scene, "prompt")
-        layout.separator()
-        
+
+        box2 = layout.box()  # Create a boxed section
+        box2.prop(scene, "image_sequence")
+        box2.prop(scene, "inference_steps")
+        box2.prop(scene, "latent_tex_size")
+        box2.prop(scene, "rgb_tex_size")
+        col = box2.column(align=True)  # Create a column to reduce spacing
+        col.label(text="Prompt")
+        col.prop(scene, "prompt", text="")
         
         if (scene.model_progress > 0.0):
-            layout.progress(text=f"Model Progress: {(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
-            layout.operator("object.cancel", text="Cancel", icon='CANCEL')
+            box2.progress(text=f"Model Progress: {(scene.model_progress*100):.0f}%", factor=scene.model_progress, type='BAR')
+            box2.operator("object.cancel", text="Cancel", icon='CANCEL')
         else: 
-            layout.operator("object.tex4d_start", text="Generate")
+            box2.operator("object.tex4d_start", text="Generate")
         
+
+        layout.separator()
         layout.separator()
         layout.operator("object.apply_texture", text="Apply generated texture")
 
@@ -128,7 +136,7 @@ class Tex4DStartOperator(bpy.types.Operator):
         
             steps = scene.inference_steps
             # Send the mesh and text prompt to the server
-            send_meshes_and_prompt(context, mesh_dir, prompt, steps)
+            send_meshes_and_prompt(context, mesh_dir, prompt, steps, scene.latent_tex_size, scene.rgb_tex_size)
 
         else: 
             mesh_path = os.path.join(scene.temp_dir, "mesh.obj")
@@ -139,7 +147,7 @@ class Tex4DStartOperator(bpy.types.Operator):
             
                 steps = scene.inference_steps
                 # Send the mesh and text prompt to the server
-                send_meshes_and_prompt(context, mesh_path, prompt, steps)
+                send_meshes_and_prompt(context, mesh_path, prompt, steps, scene.latent_tex_size, scene.rgb_tex_size)
         return {'FINISHED'}
     
 class ApplyTextureOperator(bpy.types.Operator):
@@ -248,6 +256,19 @@ def register():
         default=10,
         min=1
     )
+    bpy.types.Scene.latent_tex_size = bpy.props.IntProperty(
+        name="Latent Texture Size",
+        description="Size of the latent texture of the model. Smaller size saves VRAM",
+        default=256,
+        min=32, max=2048
+    )
+    bpy.types.Scene.rgb_tex_size = bpy.props.IntProperty(
+        name="RGB Texture Size",
+        description="Size of the resulting RGB texture.",
+        default=512,
+        min=64, max=2048
+    )
+
     bpy.types.Scene.image_sequence = bpy.props.BoolProperty(
         name="Image Sequence",
         description="Wether to generate a single texture or texture sequence",
@@ -255,6 +276,9 @@ def register():
     )
     bpy.types.Scene.temp_dir = bpy.props.StringProperty(name="Temp Dir", default="", subtype='DIR_PATH')
     
+
+
+
     # Depth images progress bar
     bpy.types.Scene.depth_progress = bpy.props.FloatProperty(
         name="Depth Images Progress",
@@ -304,6 +328,9 @@ def unregister():
     del bpy.types.Scene.num_keyframes
     del bpy.types.Scene.inference_steps
     del bpy.types.Scene.image_sequence
+    del bpy.types.Scene.latent_tex_size
+    del bpy.types.Scene.rgb_tex_size
+
     del bpy.types.Scene.depth_progress
     del bpy.types.Scene.model_progress
     del bpy.types.Scene.is_input_generated
