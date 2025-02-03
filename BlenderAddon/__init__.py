@@ -2,7 +2,7 @@ bl_info = {
     "name": "TEX4D",
     "blender": (4, 3, 0),
     "category": "Object",
-    "description": "Exports LBS weights as numpy arrays, depth images for keyframes, and UV maps.",
+    "description": "Generate 3D Textures based on a text prompt and animated mesh sequence.",
 }
 
 import bpy
@@ -58,6 +58,9 @@ class Tex4DPanel(bpy.types.Panel):
             layout.operator("object.cancel", text="Cancel", icon='CANCEL')
         else: 
             layout.operator("object.tex4d_start", text="Generate")
+        
+        layout.separator()
+        layout.operator("object.apply_texture", text="Apply generated texture")
 
 class ExportOperator(bpy.types.Operator):
     bl_idname = "object.export_data"
@@ -90,7 +93,7 @@ class ExportOperator(bpy.types.Operator):
         export_weights(self, context, output_directory)
         export_uv_maps(self, context, output_directory)
         export_depth_images(self, context, output_directory)
-        scene.is_output_generated = True        
+        scene.is_input_generated = True        
         return {'FINISHED'}
     
 class Tex4DStartOperator(bpy.types.Operator):
@@ -103,8 +106,8 @@ class Tex4DStartOperator(bpy.types.Operator):
         scene = context.scene
         scene.model_progress = 0.0
         
-        if not scene.is_output_generated:
-            self.report({'ERROR'}, "Output data not generated. Please generate output data first.")
+        if not scene.is_input_generated:
+            self.report({'ERROR'}, "Input data not generated. Please generate input data first.")
             return {'CANCELLED'}
         
         obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
@@ -139,6 +142,38 @@ class Tex4DStartOperator(bpy.types.Operator):
                 send_meshes_and_prompt(context, mesh_path, prompt, steps)
         return {'FINISHED'}
     
+class ApplyTextureOperator(bpy.types.Operator):
+    bl_idname = "object.apply_texture"
+    bl_label = "Apply generated texture"
+    bl_description = "Apply the generated Tex4D texture, if available"
+    
+    def execute(self, context):
+        scene = context.scene
+
+        file_exists = True
+
+        for i in range(scene.num_keyframes):
+             if not os.path.exists(os.path.join(scene.output_directory, f"textured_{i:02}.png")):
+                 file_exists = False
+
+        if not scene.is_texture_generated and not file_exists:
+            self.report({'ERROR'}, "Texture has not been generated yet.")
+            return {'CANCELLED'}
+        
+        material = create_animated_material()
+        obj = scene.selected_object if scene.selected_object else context.view_layer.objects.active
+        if obj and obj.type == 'MESH':
+            if obj.data.materials:
+                obj.data.materials[0] = material
+            else:
+                obj.data.materials.append(material)
+        else:
+            self.report({'ERROR'}, "No suitable object selected.")
+            return {'CANCELLED'}
+        
+        scene.is_input_generated = False      
+        return {'FINISHED'}
+    
 class CancelOperator(bpy.types.Operator):
     bl_idname = "object.cancel"
     bl_label = "Cancel"
@@ -153,6 +188,7 @@ def register():
     bpy.utils.register_class(Tex4DPanel)
     bpy.utils.register_class(ExportOperator)
     bpy.utils.register_class(Tex4DStartOperator)
+    bpy.utils.register_class(ApplyTextureOperator)
     bpy.utils.register_class(CancelOperator)
     bpy.utils.register_class(CameraViewOperator)
     
@@ -200,7 +236,8 @@ def register():
         min=1
     )
     bpy.types.Scene.output_directory = bpy.props.StringProperty(name="Output Directory", default="", subtype='DIR_PATH')
-    bpy.types.Scene.is_output_generated = bpy.props.BoolProperty(name="Is Output Generated", default=False)
+    bpy.types.Scene.is_input_generated = bpy.props.BoolProperty(name="Is Input Generated", default=False)
+    bpy.types.Scene.is_texture_generated = bpy.props.BoolProperty(name="Is Texture Generated", default=False)
     
     # Add a property for the prompt and output directory
     bpy.types.Scene.prompt = bpy.props.StringProperty(name="Prompt", default="")
@@ -246,6 +283,7 @@ def unregister():
     bpy.utils.unregister_class(Tex4DPanel)
     bpy.utils.unregister_class(ExportOperator)
     bpy.utils.unregister_class(Tex4DStartOperator)
+    bpy.utils.unregister_class(ApplyTextureOperator)
     bpy.utils.unregister_class(CancelOperator)
     bpy.utils.unregister_class(CameraViewOperator)
     
@@ -268,6 +306,8 @@ def unregister():
     del bpy.types.Scene.image_sequence
     del bpy.types.Scene.depth_progress
     del bpy.types.Scene.model_progress
+    del bpy.types.Scene.is_input_generated
+    del bpy.types.Scene.is_texture_generated
 
 def menu_func(self, context):
     self.layout.operator("node.add_node", text="Switch Textures").type = "AnimateTextureNode"

@@ -830,10 +830,6 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 						return None
 					elif userInput == "end":
 						exit(0)
-			if progress_callback:
-				progress_percentage = (progress_bar.n / progress_bar.total)
-				progress_callback(progress_percentage) 
-
 		
 		self.uvp.to(self._execution_device)
 		self.uvp_rgb.to(self._execution_device)

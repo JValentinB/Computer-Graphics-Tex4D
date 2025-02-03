@@ -4,7 +4,8 @@
 /assets/*.mp4
 /data/MVD*/
 /data/taunt/MVD*/
-outputs
+outputs/
+./outputs/*
 uploads
 outputs/*
 uploads/*
