@@ -257,7 +257,7 @@ def export_animated_mesh(obj, mesh_dir):
             #use_selection=True,
             #use_mesh_modifiers=True
         #)
-        bpy.ops.wm.obj_export(filepath=output_path)
+        bpy.ops.wm.obj_export(filepath=output_path, export_selected_objects=True)
 
         bpy.data.objects.remove(duplicate)
     
