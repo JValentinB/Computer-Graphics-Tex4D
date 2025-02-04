@@ -9,7 +9,7 @@ from io import BytesIO
 from src.configs import *
 
 def process_mesh_with_preloaded_models(
-        pipe, 
+        tex4d_pipeline: StableSyncMVDPipeline, 
         mesh_path, 
         output_path: str, 
         prompt: str = "", 
@@ -20,8 +20,6 @@ def process_mesh_with_preloaded_models(
         view_matrices=None
     ):
     try:
-        # Initialize StableSyncMVDPipeline with preloaded components
-        syncmvd = StableSyncMVDPipeline(**pipe.components)
 
         # Default options
         opt = {
@@ -61,7 +59,7 @@ def process_mesh_with_preloaded_models(
 
         # Process the mesh with the user-provided prompt
         print(f"Running SyncMVD with mesh: {mesh_path} and prompt: {prompt}")
-        result_tex_rgb = syncmvd(  #result_tex_rgb, textured_views, v = syncmvd(
+        result_tex_rgb = tex4d_pipeline(  #result_tex_rgb, textured_views, v = syncmvd(
             prompt=prompt,  # Use the prompt provided by the client                                                 
             height=opt['latent_view_size'] * 8,
             width=opt['latent_view_size'] * 8,

@@ -14,6 +14,7 @@ from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
 from process_pipeline import process_mesh_with_preloaded_models
 from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, DDPMScheduler
+from src.pipeline import StableSyncMVDPipeline
 
 app = Flask(__name__)
 socketio = SocketIO(app,
@@ -45,6 +46,11 @@ if "image_encoder" in pipe.components:
     del pipe.image_encoder
 
 print("Models initialized.\n")
+
+# Initialize StableSyncMVDPipeline with preloaded components
+syncmvd = StableSyncMVDPipeline(**pipe.components)
+
+print("SyncMVD pipeline initialized.\n")
 # _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 @socketio.on('connect')
@@ -92,7 +98,7 @@ def process():
     # Process the mesh using preloaded models and user-provided prompt
     try:
         print("Starting Tex4D...")
-        process_mesh_with_preloaded_models(pipe, upload_path, output_path, prompt, steps, send_progress_update)
+        process_mesh_with_preloaded_models(syncmvd, upload_path, output_path, prompt, steps, send_progress_update)
         
         results_dir = os.path.join(os.path.dirname(output_path), 'results')
     
@@ -185,6 +191,7 @@ def process_sequence():
     
     # Get the OBJ files
     obj_files = request.files.getlist('mesh')
+    [print(file) for file in obj_files]
     if not obj_files:
         return jsonify({"error": "No OBJ files provided"}), 400
     
@@ -278,7 +285,7 @@ def process_sequence():
         send_progress_update(1)
         # Delete the temporary directory and its contents after processing is complete
         if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+           shutil.rmtree(temp_dir)
     
 
 
