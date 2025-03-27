@@ -195,9 +195,10 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		self.result_dir = f"{output_dir}/results"
 		self.intermediate_dir = f"{output_dir}/intermediate"
 		self.first_key_frame = f"{output_dir}/first_key_frame"
+		self.conditional_image = f"{output_dir}/conditional_image"
 
 
-		dirs = [output_dir, self.result_dir, self.intermediate_dir, self.first_key_frame]
+		dirs = [output_dir, self.result_dir, self.intermediate_dir, self.first_key_frame, self.conditional_image]
 		for dir_ in dirs:
 			if not os.path.isdir(dir_):
 				os.mkdir(dir_)
@@ -849,20 +850,25 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 		# 	composited_image.save(f"{self.first_key_frame}/first_key_frame.jpg")
 
 		# For test
-		image = composited_images[3]
-		composited_array = image.permute(1, 2, 0).cpu().numpy()
-		composited_image = Image.fromarray((composited_array * 255).astype(np.uint8))
-		if composited_image.mode == 'RGBA':
-			composited_image = composited_image.convert('RGB')
-		composited_image.save(f"{self.first_key_frame}/first_key_frame.jpg")
+
 
 		# TODO: output depth map as condition image
-		for i in range(self.key_frames_num):
-			depth_map = conditioning_images[i][3]
-			depth_map = depth_map.cpu().numpy()
-			depth_map = (depth_map - np.min(depth_map)) / (np.max(depth_map) - np.min(depth_map))
-			depth_map = Image.fromarray((depth_map[0,...] * 255).astype(np.uint8))
-			depth_map.save(f"{self.first_key_frame}/depth_map_{i:05d}.jpg")
+		for index in range(len(self.camera_poses)):
+			image = composited_images[index]
+			composited_array = image.permute(1, 2, 0).cpu().numpy()
+			composited_image = Image.fromarray((composited_array * 255).astype(np.uint8))
+			if composited_image.mode == 'RGBA':
+				composited_image = composited_image.convert('RGB')
+			os.mkdir(f"{self.first_key_frame}/view_{index:02d}")
+			os.mkdir(f"{self.conditional_image}/view_{index:02d}")
+			composited_image.save(f"{self.first_key_frame}/view_{index:02d}/first_key_frame.jpg")
+			for i in range(self.key_frames_num):
+				depth_map = conditioning_images[i][index]
+				depth_map = depth_map.cpu().numpy()
+				depth_map = (depth_map - np.min(depth_map)) / (np.max(depth_map) - np.min(depth_map))
+				depth_map = Image.fromarray((depth_map[0,...] * 255).astype(np.uint8))
+
+				depth_map.save(f"{self.conditional_image}/view_{index:02d}/depth_map_{i:05d}.jpg")
 
 		for i, result_tex_rgb_tmp in enumerate(result_tex_rgb):
 			self.uvp.save_mesh(f"{self.result_dir}/textured_{i:02d}.obj", result_tex_rgb_tmp,i)
