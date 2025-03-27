@@ -2,9 +2,11 @@
 
 Based on [Tex4D](https://github.com/ZqlwMatt/Tex4D).
 
-We are developing a Tex4d-Plugin for Blender by replicating the model described by [Bao et al](https://arxiv.org/pdf/2410.10821)
+We are developing a Tex4d-Addon for Blender by replicating the model described by [Bao et al](https://arxiv.org/pdf/2410.10821)
 
 ## Installation
+
+### Tex4D
 
 Using requirements.txt:
 
@@ -27,4 +29,15 @@ git clone https://github.com/JValentinB/Computer-Graphics-Tex4D.git
 cd Computer-Graphics-Tex4D
 conda env create -f environment.yaml
 conda activate tex4d
+```
+### Blender Add-on
+
+- Download BlenderAddon.zip
+- Blender>Edit>Preferences>Add-ons> Install via zip
+
+## Running the Tex4D Server
+
+```bash
+conda activate tex4d
+python app.py
 ```
